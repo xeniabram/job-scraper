@@ -25,9 +25,9 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )
 
-    # Ollama configuration
-    ollama_host: str = Field(default="http://localhost:11434", description="Ollama API host")
-    ollama_model: str = Field(default="llama3.2:latest", description="Ollama model to use")
+    # OpenAI configuration
+    openai_api_key: str = Field(default="", description="OpenAI API key")
+    openai_model: str = Field(default="gpt-4o-mini", description="OpenAI model to use")
 
     # Paths
     config_file: Path = Field(default=Path("config.yaml"), description="Path to config file")

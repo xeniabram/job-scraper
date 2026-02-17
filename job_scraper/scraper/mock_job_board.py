@@ -142,19 +142,26 @@ class MockJobBoard:
         logger.info(f"🎭 MOCK MODE: Simulating job search with params: {search_params}")
         await asyncio.sleep(0.5)
 
-    async def get_job_links(self, max_jobs: int = 100) -> list[str]:
+    async def get_job_links(self, max_jobs: int = 100, url_cache=None) -> list[str]:
         """Return hardcoded job links (one per mock job).
 
+        Only unseen URLs (not in url_cache) count toward max_jobs.
+
         Args:
-            max_jobs: Maximum number of job links to return
+            max_jobs: Maximum number of new (unseen) job links to return
+            url_cache: Optional cache of already-seen URLs
 
         Returns:
             List of mock job URLs
         """
-        count = min(max_jobs, len(self.JOBS))
-        job_links = [f"https://example.com/jobs/view/{1000 + i}" for i in range(count)]
+        all_links = [f"https://example.com/jobs/view/{1000 + i}" for i in range(len(self.JOBS))]
+        if url_cache is not None:
+            unseen = [url for url in all_links if url not in url_cache]
+        else:
+            unseen = all_links
+        job_links = unseen[:max_jobs]
 
-        logger.info(f"🎭 MOCK MODE: Returning {count} hardcoded job links")
+        logger.info(f"🎭 MOCK MODE: Returning {len(job_links)} new hardcoded job links")
         return job_links
 
     async def view_job(self, job_url: str) -> dict[str, Any]:

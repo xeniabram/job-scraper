@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     requirements           TEXT,
     requirements_optional  TEXT,
     responsibilities       TEXT,
-    scraped_at             TEXT
+    scraped_at             TEXT,
+    filtered_at            TEXT
 )
 """
 
@@ -103,6 +104,10 @@ class SqliteStorage:
     def _init_db(self) -> None:
         with self._connect() as conn:
             conn.execute(_DDL)
+            # Add filtered_at column to existing DBs that predate it
+            columns = [row[1] for row in conn.execute("PRAGMA table_info(jobs)")]
+            if "filtered_at" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN filtered_at TEXT")
 
     def _row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         d = dict(row)
@@ -186,18 +191,31 @@ class SqliteStorage:
         logger.info(f"Saved scraped job: {job_data.get('title') or url}")
 
     def load_pending_jobs(self) -> list[dict[str, Any]]:
-        """Return all jobs currently in the pending queue."""
+        """Return jobs that have not been filtered yet."""
         with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM jobs").fetchall()
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE filtered_at IS NULL"
+            ).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
-    def remove_job(self, url: str) -> None:
-        """Remove a job from the pending queue after processing."""
+    def mark_processed(self, url: str) -> None:
+        """Mark a job as filtered. Keeps the row for potential reprocessing."""
         with self._connect() as conn:
-            conn.execute("DELETE FROM jobs WHERE url = ?", (url,))
+            conn.execute(
+                "UPDATE jobs SET filtered_at = ? WHERE url = ?",
+                (datetime.now().isoformat(), url),
+            )
+
+    def reset_processed(self) -> int:
+        """Clear filtered_at on all jobs so they can be reprocessed. Returns count reset."""
+        with self._connect() as conn:
+            cur = conn.execute("UPDATE jobs SET filtered_at = NULL WHERE filtered_at IS NOT NULL")
+        return cur.rowcount
 
     def pending_count(self) -> int:
-        """Return number of jobs waiting to be filtered."""
+        """Return number of jobs not yet filtered."""
         with self._connect() as conn:
-            row = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()
+            row = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE filtered_at IS NULL"
+            ).fetchone()
         return row[0]

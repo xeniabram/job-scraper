@@ -4,40 +4,25 @@ A modern, AI-powered job scraping tool for public job boards (for now, theprotoc
 
 ## Features
 
-- **AI-Powered Filtering**: Uses local LLM (Ollama) to match jobs to your requirements
+- **AI-Powered Filtering**: Uses OPENAI to match jobs to your requirements
 - **Rate Limiting**: Configurable daily limits and polite scraping behavior
 - **Persistent Storage**: Saves matched and rejected jobs to separate files
-- **Privacy First**: Runs completely locally - no data leaves your machine
 - **Mock Mode**: Test the system with fake data before going live
 
 ## Prerequisites
 
 - Python 3.13+
 - [uv](https://github.com/astral-sh/uv) - Fast Python package manager
-- [Ollama](https://ollama.ai) - Local LLM runtime
 
 ## Installation
 
-1. **Install Ollama** (if not already installed):
-   ```bash
-   # macOS/Linux
-   curl -fsSL https://ollama.ai/install.sh | sh
-   
-   # Or visit https://ollama.ai for other platforms
-   ```
 
-2. **Pull an LLM model**:
-   ```bash
-   ollama pull llama3.2:latest
-   # or: ollama pull llama3, ollama pull phi3, etc.
-   ```
-
-3. **Install project dependencies**:
+1. **Install project dependencies**:
    ```bash
    uv sync
    ```
 
-4. **Install Playwright browsers**:
+2. **Install Playwright browsers**:
    ```bash
    uv run playwright install chromium
    ```
@@ -49,13 +34,7 @@ A modern, AI-powered job scraping tool for public job boards (for now, theprotoc
    cp .env.example .env
    ```
 
-2. **Edit `.env`** with machine-level settings:
-   ```env
-   OLLAMA_HOST=http://localhost:11434
-   OLLAMA_MODEL=llama3.2:latest
-   HEADLESS=false   # set true to run browser invisibly
-   MOCK_MODE=false
-   ```
+2. **Edit `.env`** with your settings
 
 3. **Copy and customize `config.yaml`** with your job search criteria:
    ```bash
@@ -95,7 +74,7 @@ uv run job-scraper <command> [options]
 | Command | What it does |
 |---------|-------------|
 | `scrape` | Opens a browser, paginates through job listings, saves raw job data to `data/scraped_jobs.db` |
-| `filter` | Reads the SQLite queue, sends each job to the local LLM, writes results to `matched_jobs.txt` / `rejected_jobs.txt` |
+| `filter` | Reads the SQLite queue, sends each job to the LLM, writes results to `matched_jobs.txt` / `rejected_jobs.txt` |
 | `run` | Runs `scrape` then `filter` sequentially (browser closes before LLM starts) |
 
 ### Common invocations

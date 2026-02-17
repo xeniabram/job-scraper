@@ -175,14 +175,18 @@ class ProtocolScraper:
         await self._handle_modals()
         await asyncio.sleep(1)
 
-    async def get_job_links(self, max_jobs: int = 100) -> list[str]:
-        """Paginate through search results using ?pageNumber= param."""
-        logger.info(f"Collecting up to {max_jobs} job links...")
-        job_links: set[str] = set()
+    async def get_job_links(self, max_jobs: int = 100, url_cache=None) -> list[str]:
+        """Paginate through search results using ?pageNumber= param.
+
+        Only unseen URLs (not in url_cache) count toward max_jobs.
+        Pagination continues until max_jobs unseen links are collected or no more pages exist.
+        """
+        logger.info(f"Collecting up to {max_jobs} new job links...")
+        unseen_links: list[str] = []
         base_url = self.browser.page.url.split("?")[0]
         page_num = 1
 
-        while len(job_links) < max_jobs:
+        while len(unseen_links) < max_jobs:
             try:
                 if page_num > 1:
                     url = f"{base_url}?pageNumber={page_num}"
@@ -195,19 +199,27 @@ class ProtocolScraper:
                     logger.info(f"No job cards on page {page_num}, done")
                     break
 
-                prev_count = len(job_links)
+                page_new = 0
+                page_seen = 0
                 for card in job_cards:
                     href = await card.get_attribute("href")
                     if href and "/praca/" in href:
                         clean_url = href.split("?")[0]
                         if not clean_url.startswith("http"):
                             clean_url = "https://theprotocol.it" + clean_url
-                        job_links.add(clean_url)
+                        if url_cache is not None and clean_url in url_cache:
+                            page_seen += 1
+                        elif clean_url not in unseen_links:
+                            unseen_links.append(clean_url)
+                            page_new += 1
 
-                logger.info(f"Page {page_num}: {len(job_links)} unique links so far")
+                logger.info(
+                    f"Page {page_num}: {page_new} new, {page_seen} already seen"
+                    f" | total new: {len(unseen_links)}"
+                )
 
-                if len(job_links) == prev_count:
-                    logger.info("No new links on this page, done")
+                if page_new == 0:
+                    logger.info("All jobs on this page already seen, done")
                     break
 
                 page_num += 1
@@ -216,8 +228,8 @@ class ProtocolScraper:
                 logger.warning(f"Error collecting links on page {page_num}: {e}")
                 break
 
-        result = list(job_links)[:max_jobs]
-        logger.info(f"Collected {len(result)} job links across {page_num} page(s)")
+        result = unseen_links[:max_jobs]
+        logger.info(f"Collected {len(result)} new job links across {page_num} page(s)")
         return result
 
     # ------------------------------------------------------------------

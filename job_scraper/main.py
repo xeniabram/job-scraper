@@ -16,6 +16,7 @@ import psutil
 from loguru import logger
 
 from job_scraper.config import settings
+from job_scraper.llm import JobFilter
 from job_scraper.storage import FileStorage, SqliteStorage
 from job_scraper.utils import RateLimiter, setup_logger
 
@@ -55,12 +56,9 @@ async def _scrape_jobs(
     # Navigate to jobs with filters
     await job_board.navigate_to_jobs(config.search)
 
-    # Get job links
+    # Get job links — limit applies to unseen jobs only
     max_jobs = min(max_jobs, rate_limiter.remaining_requests)
-    job_links = await job_board.get_job_links(max_jobs=max_jobs)
-
-    # Filter out already seen jobs (hash cache, O(1) lookups)
-    new_jobs = [url for url in job_links if url not in storage.url_cache]
+    new_jobs = await job_board.get_job_links(max_jobs=max_jobs, url_cache=storage.url_cache)
     logger.info(f"Found {len(new_jobs)} new jobs to scrape")
 
     if not new_jobs:
@@ -144,17 +142,11 @@ async def filter_main(limit: int | None = None) -> int:
     storage = SqliteStorage(settings.data_dir)
     file_storage = FileStorage(settings.data_dir)
 
-    from job_scraper.llm import JobFilter
-
     job_filter = JobFilter(
-        model=settings.ollama_model,
+        model=settings.openai_model,
         requirements=config.requirements,
-        host=settings.ollama_host,
+        api_key=settings.openai_api_key,
     )
-
-    if not job_filter.check_model_available():
-        logger.error("LLM model not available. Please install it first.")
-        return 1
 
     pending_jobs = storage.load_pending_jobs()
 
@@ -175,28 +167,26 @@ async def filter_main(limit: int | None = None) -> int:
 
         filter_result = await job_filter.filter_job(job_data)
 
-        skillset_pct = filter_result.get("skillset_match_percent", 0)
-
         # Write result to text files, then remove from YAML queue
-        if filter_result["match"]:
+        if filter_result.match:
             await file_storage.save_matched_job(
                 job_data["url"],
                 job_data.get("title", ""),
-                skillset_match_percent=skillset_pct,
+                skillset_match_percent=filter_result.skillset_match_percent,
             )
             matched_count += 1
             logger.success(
-                f"MATCHED: {job_data.get('title', 'Unknown')} (skillset: {skillset_pct}%)"
+                f"MATCHED: {job_data.get('title', 'Unknown')} (skillset: {filter_result.skillset_match_percent}%)"
             )
         else:
             await file_storage.save_rejected_job(
                 job_data["url"],
-                filter_result["reason"],
-                skillset_match_percent=skillset_pct,
+                filter_result.reason,
+                skillset_match_percent=filter_result.skillset_match_percent,
             )
             rejected_count += 1
 
-        storage.remove_job(job_data["url"])
+        storage.mark_processed(job_data["url"])
 
     # Summary
     remaining = storage.pending_count()
@@ -242,6 +232,9 @@ def parse_args() -> argparse.Namespace:
     run_parser = subparsers.add_parser("run", help="Scrape then filter (sequential)")
     run_parser.add_argument("--limit", type=int, help="Max jobs to process")
 
+    # reprocess — reset filtered_at so filter can run again on all jobs
+    subparsers.add_parser("reprocess", help="Reset all filtered jobs so they can be re-filtered")
+
     return parser.parse_args()
 
 
@@ -260,8 +253,13 @@ async def main(args: argparse.Namespace) -> int:
             return await filter_main(limit=args.limit)
         elif args.command == "run":
             return await run_main(limit=args.limit)
+        elif args.command == "reprocess":
+            storage = SqliteStorage(settings.data_dir)
+            count = storage.reset_processed()
+            logger.info(f"Reset {count} jobs — run 'filter' to reprocess them")
+            return 0
         else:
-            logger.error("Unknown command. Use: scrape, filter, or run")
+            logger.error("Unknown command. Use: scrape, filter, run, or reprocess")
             return 1
 
     except KeyboardInterrupt:
