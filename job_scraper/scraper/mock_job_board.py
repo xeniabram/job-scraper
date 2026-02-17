@@ -119,7 +119,6 @@ class MockJobBoard:
     def __init__(
         self,
         browser: Any,
-        view_duration: int = 20,
     ):
         """Initialize mock job board.
 
@@ -127,7 +126,6 @@ class MockJobBoard:
             browser: Browser instance (unused in mock)
             view_duration: Seconds to simulate viewing each job
         """
-        self.view_duration = view_duration
         self._job_counter = 0
 
     async def login(self) -> bool:
@@ -184,9 +182,7 @@ class MockJobBoard:
             "description": job["description"],
         }
 
-        view_time = min(self.view_duration, 3)
-        logger.info(f"🎭 Viewing mock job: {job['title']} at {job['company']} ({view_time}s)")
-        await asyncio.sleep(view_time)
-
+        logger.info(f"🎭 Viewing mock job: {job['title']} at {job['company']})")
+        
         self._job_counter += 1
         return job_data

@@ -32,7 +32,7 @@ select = [
     "I",   # isort (import sorting)
     "UP",  # pyupgrade
 ]
-ignore = ["E501"]  # line length enforced by formatter, not linter
+ignore = ["E501", "E722"]  # line length enforced by formatter, not linter
 
 [tool.ruff.format]
 quote-style = "double"

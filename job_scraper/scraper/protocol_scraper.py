@@ -54,9 +54,8 @@ class ProtocolScraper:
         'button:has-text("Polski")',
     ]
 
-    def __init__(self, browser: Browser, view_duration: int = 20):
+    def __init__(self, browser: Browser):
         self.browser = browser
-        self.view_duration = view_duration
         self._modals_handled = False
 
     # ------------------------------------------------------------------
@@ -373,12 +372,6 @@ class ProtocolScraper:
             }
 
             logger.info(f"Viewing job: {title or 'Unknown'} at {company or 'Unknown'}")
-
-            # Polite view duration with scrolling
-            for _ in range(self.view_duration // 5):
-                await self.browser.scroll_slowly(distance=200, steps=3)
-                await asyncio.sleep(5)
-
             return job_data
 
         except Exception as e:

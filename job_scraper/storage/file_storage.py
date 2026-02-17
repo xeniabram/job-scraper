@@ -74,7 +74,7 @@ class FileStorage:
 
         for file_path in [self.matched_file, self.rejected_file]:
             if file_path.exists():
-                async with aiofiles.open(file_path, mode="r") as f:
+                async with aiofiles.open(file_path) as f:
                     async for line in f:
                         # Extract URL (first part before |)
                         url = line.split("|")[0].strip()

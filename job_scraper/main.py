@@ -1,8 +1,8 @@
 """Main orchestration logic for the job scraper.
 
 Supports two independent phases:
-  - scrape: Browser automation only, saves jobs to YAML (no LLM)
-  - filter: LLM filtering only, reads from YAML (no browser)
+  - scrape: Browser automation only, saves jobs to SQLite (no LLM)
+  - filter: LLM filtering only, reads from SQLite (no browser)
   - run: Sequential scrape then filter (never simultaneous)
 """
 
@@ -16,7 +16,7 @@ import psutil
 from loguru import logger
 
 from job_scraper.config import settings
-from job_scraper.storage import FileStorage, YamlStorage
+from job_scraper.storage import FileStorage, SqliteStorage
 from job_scraper.utils import RateLimiter, setup_logger
 
 
@@ -40,27 +40,27 @@ def _is_excluded_company(company: str, excluded: list[str]) -> bool:
 async def _scrape_jobs(
     job_board: Any,
     rate_limiter: RateLimiter,
-    yaml_storage: YamlStorage,
+    storage: SqliteStorage,
     max_jobs: int,
 ) -> int:
-    """Scrape jobs and save to YAML. No LLM involved."""
+    """Scrape jobs and save to SQLite. No LLM involved."""
     # Login
     if not await job_board.login():
         logger.error("Failed to login.")
         return 1
 
     config = settings.load_config()
-    excluded_companies: list[str] = config.get("requirements", {}).get("excluded_companies", [])
+    excluded_companies: list[str] = config.requirements.get("excluded_companies", [])
 
     # Navigate to jobs with filters
-    await job_board.navigate_to_jobs(config["search"])
+    await job_board.navigate_to_jobs(config.search)
 
     # Get job links
     max_jobs = min(max_jobs, rate_limiter.remaining_requests)
     job_links = await job_board.get_job_links(max_jobs=max_jobs)
 
     # Filter out already seen jobs (hash cache, O(1) lookups)
-    new_jobs = [url for url in job_links if url not in yaml_storage.url_cache]
+    new_jobs = [url for url in job_links if url not in storage.url_cache]
     logger.info(f"Found {len(new_jobs)} new jobs to scrape")
 
     if not new_jobs:
@@ -88,14 +88,14 @@ async def _scrape_jobs(
             excluded_count += 1
             continue
 
-        yaml_storage.save_job(job_data)
+        storage.save_job(job_data)
         scraped_count += 1
 
         if scraped_count % 5 == 0:
             _log_resources()
 
     # Summary
-    pending = yaml_storage.pending_count()
+    pending = storage.pending_count()
     logger.info("\n" + "=" * 60)
     logger.info("Scraping Complete")
     logger.info("=" * 60)
@@ -103,54 +103,52 @@ async def _scrape_jobs(
         f"Jobs scraped this session: {scraped_count} (skipped {excluded_count} excluded companies)"
     )
     logger.info(f"Pending in queue: {pending}")
-    logger.info(f"Total URLs seen (cache): {len(yaml_storage.url_cache)}")
+    logger.info(f"Total URLs seen (cache): {len(storage.url_cache)}")
 
     return 0
 
 
-async def scrape_main(limit: int | None = None, headless: bool | None = None) -> int:
-    """Scrape-only phase: browser + extraction, save to YAML. No LLM."""
+async def scrape_main(limit: int | None = None, headless: bool = True, mock_mode: bool = False) -> int:
+    """Scrape-only phase: browser + extraction, save to SQLite. No LLM."""
     config = settings.load_config()
 
-    yaml_storage = YamlStorage(settings.data_dir)
+    storage = SqliteStorage(settings.data_dir)
     rate_limiter = RateLimiter(
-        daily_limit=limit or settings.daily_job_limit,
-        min_delay=config["scraper"]["random_delay_range"][0],
-        max_delay=config["scraper"]["random_delay_range"][1],
+        daily_limit=limit or config.scraper.daily_limit,
+        delay=config.scraper.fetch_interval
     )
 
-    max_jobs = limit or settings.daily_job_limit
+    max_jobs = limit or config.scraper.daily_limit
 
-    if settings.mock_mode:
+    if mock_mode:
+        
         from job_scraper.scraper import MockJobBoard
 
-        job_board = MockJobBoard(browser=None, view_duration=settings.view_duration_seconds)
-        return await _scrape_jobs(job_board, rate_limiter, yaml_storage, max_jobs)
+        job_board = MockJobBoard(browser=None)
+        return await _scrape_jobs(job_board, rate_limiter, storage, max_jobs)
     else:
         from job_scraper.scraper import Browser
         from job_scraper.scraper.protocol_scraper import ProtocolScraper
 
-        use_headless = headless if headless is not None else settings.headless
-        async with Browser(headless=use_headless) as browser:
+        async with Browser(headless=headless) as browser:
             job_board = ProtocolScraper(
                 browser=browser,
-                view_duration=settings.view_duration_seconds,
             )
-            return await _scrape_jobs(job_board, rate_limiter, yaml_storage, max_jobs)
+            return await _scrape_jobs(job_board, rate_limiter, storage, max_jobs)
 
 
 async def filter_main(limit: int | None = None) -> int:
-    """Filter-only phase: read YAML queue, send to LLM one-by-one, remove from queue. No browser."""
+    """Filter-only phase: read SQLite queue, send to LLM one-by-one, remove from queue. No browser."""
     config = settings.load_config()
 
-    yaml_storage = YamlStorage(settings.data_dir)
+    storage = SqliteStorage(settings.data_dir)
     file_storage = FileStorage(settings.data_dir)
 
     from job_scraper.llm import JobFilter
 
     job_filter = JobFilter(
         model=settings.ollama_model,
-        requirements=config["requirements"],
+        requirements=config.requirements,
         host=settings.ollama_host,
     )
 
@@ -158,7 +156,7 @@ async def filter_main(limit: int | None = None) -> int:
         logger.error("LLM model not available. Please install it first.")
         return 1
 
-    pending_jobs = yaml_storage.load_pending_jobs()
+    pending_jobs = storage.load_pending_jobs()
 
     if not pending_jobs:
         logger.info("No jobs to filter. Run 'scrape' first.")
@@ -198,10 +196,10 @@ async def filter_main(limit: int | None = None) -> int:
             )
             rejected_count += 1
 
-        yaml_storage.remove_job(job_data["url"])
+        storage.remove_job(job_data["url"])
 
     # Summary
-    remaining = yaml_storage.pending_count()
+    remaining = storage.pending_count()
     logger.info("\n" + "=" * 60)
     logger.info("Filtering Complete")
     logger.info("=" * 60)
@@ -231,7 +229,7 @@ def parse_args() -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # scrape
-    scrape_parser = subparsers.add_parser("scrape", help="Scrape jobs to YAML (no LLM)")
+    scrape_parser = subparsers.add_parser("scrape", help="Scrape jobs to SQLite (no LLM)")
     scrape_parser.add_argument("--limit", type=int, help="Max jobs to scrape")
     scrape_parser.add_argument("--headless", action="store_true", default=None)
     scrape_parser.add_argument("--no-headless", dest="headless", action="store_false")
@@ -254,8 +252,6 @@ async def main(args: argparse.Namespace) -> int:
 
         logger.info("=" * 60)
         logger.info(f"Job Scraper — {args.command}")
-        if settings.mock_mode:
-            logger.warning("RUNNING IN MOCK MODE")
         logger.info("=" * 60)
 
         if args.command == "scrape":

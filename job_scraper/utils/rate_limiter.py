@@ -1,7 +1,6 @@
 """Rate limiting and politeness utilities."""
 
 import asyncio
-import random
 from datetime import datetime, timedelta
 
 from loguru import logger
@@ -13,8 +12,7 @@ class RateLimiter:
     def __init__(
         self,
         daily_limit: int,
-        min_delay: float = 1.0,
-        max_delay: float = 3.0,
+        delay: int
     ):
         """Initialize rate limiter.
 
@@ -24,8 +22,7 @@ class RateLimiter:
             max_delay: Maximum delay between requests in seconds
         """
         self.daily_limit = daily_limit
-        self.min_delay = min_delay
-        self.max_delay = max_delay
+        self.delay = delay
 
         self._request_count = 0
         self._reset_time = datetime.now() + timedelta(days=1)
@@ -45,12 +42,11 @@ class RateLimiter:
                 self._reset_counter()
 
         # Add random delay between requests
-        delay = random.uniform(self.min_delay, self.max_delay)
 
         # Ensure minimum time has passed since last request
         time_since_last = (datetime.now() - self._last_request_time).total_seconds()
-        if time_since_last < delay:
-            await asyncio.sleep(delay - time_since_last)
+        if time_since_last < self.delay:
+            await asyncio.sleep(self.delay - time_since_last)
 
         self._last_request_time = datetime.now()
         self._request_count += 1

@@ -5,6 +5,7 @@ Jobs are added during scraping and removed after filtering.
 A separate URL cache (hashed) tracks all ever-seen URLs for fast dedup.
 """
 
+import dbm
 import hashlib
 from datetime import datetime
 from pathlib import Path
@@ -15,40 +16,30 @@ from loguru import logger
 
 
 class UrlCache:
-    """Persistent set of seen URLs stored as SHA256 hashes.
+    """Persistent set of seen URLs backed by a disk-based hash table (dbm).
 
-    One hash per line in a flat file. Loaded into memory as a set
-    for O(1) lookups. Survives across sessions.
+    Lookups and inserts are O(1) without loading the full dataset into memory.
+    Survives across sessions.
     """
 
     def __init__(self, data_dir: Path):
-        self._file = data_dir / ".url_cache"
-        self._hashes: set[str] = set()
-        self._load()
+        self._db_path = str(data_dir / ".url_cache_db")
 
     @staticmethod
-    def _hash(url: str) -> str:
-        return hashlib.sha256(url.encode()).hexdigest()
-
-    def _load(self) -> None:
-        if not self._file.exists():
-            return
-        with open(self._file, "r") as f:
-            self._hashes = {line.strip() for line in f if line.strip()}
-        logger.debug(f"URL cache loaded: {len(self._hashes)} entries")
+    def _key(url: str) -> bytes:
+        return hashlib.sha256(url.encode()).digest()
 
     def __contains__(self, url: str) -> bool:
-        return self._hash(url) in self._hashes
+        with dbm.open(self._db_path, "c") as db:
+            return self._key(url) in db
 
     def add(self, url: str) -> None:
-        h = self._hash(url)
-        if h not in self._hashes:
-            self._hashes.add(h)
-            with open(self._file, "a") as f:
-                f.write(h + "\n")
+        with dbm.open(self._db_path, "c") as db:
+            db[self._key(url)] = b""
 
     def __len__(self) -> int:
-        return len(self._hashes)
+        with dbm.open(self._db_path, "c") as db:
+            return len(db)
 
 
 class YamlStorage:
@@ -68,7 +59,7 @@ class YamlStorage:
         """Load the full YAML file. Returns empty structure if file missing."""
         if not self.yaml_file.exists():
             return {"jobs": []}
-        with open(self.yaml_file, "r") as f:
+        with open(self.yaml_file) as f:
             data = yaml.safe_load(f) or {}
         if "jobs" not in data:
             data["jobs"] = []

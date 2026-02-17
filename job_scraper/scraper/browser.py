@@ -1,7 +1,5 @@
 """Browser automation wrapper with persistent session support."""
 
-import asyncio
-import random
 from pathlib import Path
 from typing import Literal
 
@@ -85,45 +83,6 @@ class Browser:
     ) -> None:
         logger.debug(f"Navigating to: {url}")
         await self.page.goto(url, wait_until=wait_until)
-        await self._random_delay(0.5, 1.5)
-
-    async def type_human(self, selector: str, text: str) -> None:
-        """Type text with irregular, human-like timing.
-
-        Mimics real typing: fast bursts, hesitations, occasional pauses.
-        """
-        await self.page.click(selector)
-        await self._random_delay(0.3, 0.7)
-
-        for char in text:
-            await self.page.keyboard.type(char)
-
-            # Base delay varies per character
-            if char in (" ", "@", ".", "-"):
-                # Slight pause at word boundaries / special chars
-                await self._random_delay(0.12, 0.35)
-            elif random.random() < 0.1:
-                # ~10% chance of a longer "thinking" pause
-                await self._random_delay(0.3, 0.7)
-            else:
-                # Normal typing — irregular rhythm
-                await self._random_delay(0.04, 0.18)
-
-    async def scroll_slowly(self, distance: int = 300, steps: int = 5) -> None:
-        step_size = distance // steps
-        for _ in range(steps):
-            await self.page.evaluate(f"window.scrollBy(0, {step_size})")
-            await self._random_delay(0.2, 0.5)
-
-    async def random_mouse_movement(self) -> None:
-        x = random.randint(100, 1800)
-        y = random.randint(100, 1000)
-        await self.page.mouse.move(x, y)
-        await self._random_delay(0.1, 0.3)
-
-    async def _random_delay(self, min_seconds: float, max_seconds: float) -> None:
-        delay = random.uniform(min_seconds, max_seconds)
-        await asyncio.sleep(delay)
 
     async def __aenter__(self):
         await self.start()

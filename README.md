@@ -94,8 +94,8 @@ uv run job-scraper <command> [options]
 
 | Command | What it does |
 |---------|-------------|
-| `scrape` | Opens a browser, paginates through job listings, saves raw job data to `data/scraped_jobs.yaml` |
-| `filter` | Reads the YAML queue, sends each job to the local LLM, writes results to `matched_jobs.txt` / `rejected_jobs.txt` |
+| `scrape` | Opens a browser, paginates through job listings, saves raw job data to `data/scraped_jobs.db` |
+| `filter` | Reads the SQLite queue, sends each job to the local LLM, writes results to `matched_jobs.txt` / `rejected_jobs.txt` |
 | `run` | Runs `scrape` then `filter` sequentially (browser closes before LLM starts) |
 
 ### Common invocations
@@ -104,10 +104,10 @@ uv run job-scraper <command> [options]
 # Scrape up to 200 jobs, browser visible
 uv run  python -m job-scraper scrape --limit 200
 
-# Scrape headlessly (no browser window)
-uv run python -m job-scraper scrape --headless --limit 500
+# Scrape and show browser window, headless by default
+uv run python -m job-scraper scrape --headless false --limit 500
 
-# Filter whatever is in the YAML queue (no browser needed)
+# Filter whatever is in the SQLite queue (no browser needed)
 uv run python -m job-scraper filter
 
 # Filter only 10 jobs this session
@@ -117,19 +117,9 @@ uv run python -m job-scraper filter --limit 10
 uv run python -m job-scraper run --limit 100
 ```
 
-Or use the Makefile shortcuts:
-```bash
-make scrape          # scrape with visible browser
-make scrape-headless # scrape headlessly
-make filter          # filter the queue
-make run             # full pipeline
-make mock-scrape     # test with fake data (no browser, no Ollama needed for scrape)
-```
-
 ### View results
 
 ```bash
-make matched         # show matched jobs
 cat data/matched_jobs.txt
 cat data/rejected_jobs.txt
 ```
