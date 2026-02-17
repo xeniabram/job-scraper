@@ -8,17 +8,17 @@ from loguru import logger
 
 def setup_logger(log_dir: Path = Path("logs"), log_level: str = "INFO") -> None:
     """Configure loguru logger with file and console output.
-    
+
     Args:
         log_dir: Directory to store log files
         log_level: Minimum log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     """
     # Create log directory if it doesn't exist
     log_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Remove default handler
     logger.remove()
-    
+
     # Add console handler with nice formatting
     logger.add(
         sys.stderr,
@@ -26,7 +26,7 @@ def setup_logger(log_dir: Path = Path("logs"), log_level: str = "INFO") -> None:
         level=log_level,
         colorize=True,
     )
-    
+
     # Add file handler for all logs
     logger.add(
         log_dir / "scraper_{time:YYYY-MM-DD}.log",
@@ -36,7 +36,7 @@ def setup_logger(log_dir: Path = Path("logs"), log_level: str = "INFO") -> None:
         retention="30 days",  # Keep logs for 30 days
         compression="zip",  # Compress old logs
     )
-    
+
     # Add error file handler
     logger.add(
         log_dir / "errors_{time:YYYY-MM-DD}.log",
@@ -45,5 +45,5 @@ def setup_logger(log_dir: Path = Path("logs"), log_level: str = "INFO") -> None:
         rotation="00:00",
         retention="90 days",
     )
-    
+
     logger.info("Logger initialized")

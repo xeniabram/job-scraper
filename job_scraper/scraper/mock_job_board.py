@@ -154,10 +154,7 @@ class MockJobBoard:
             List of mock job URLs
         """
         count = min(max_jobs, len(self.JOBS))
-        job_links = [
-            f"https://example.com/jobs/view/{1000 + i}"
-            for i in range(count)
-        ]
+        job_links = [f"https://example.com/jobs/view/{1000 + i}" for i in range(count)]
 
         logger.info(f"🎭 MOCK MODE: Returning {count} hardcoded job links")
         return job_links

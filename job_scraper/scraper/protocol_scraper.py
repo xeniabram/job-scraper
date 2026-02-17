@@ -32,8 +32,8 @@ class ProtocolScraper:
         ],
         "description": [
             '[data-test*="description"]',
-            'article',
-            'main p',
+            "article",
+            "main p",
         ],
         "technologies": [
             '[data-test*="tech"]',
@@ -190,9 +190,7 @@ class ProtocolScraper:
                     await self.browser.page.goto(url, wait_until="domcontentloaded")
                     await asyncio.sleep(2)
 
-                job_cards = await self.browser.page.locator(
-                    '[data-test="list-item-offer"]'
-                ).all()
+                job_cards = await self.browser.page.locator('[data-test="list-item-offer"]').all()
 
                 if not job_cards:
                     logger.info(f"No job cards on page {page_num}, done")
@@ -227,9 +225,7 @@ class ProtocolScraper:
     # Job detail extraction
     # ------------------------------------------------------------------
 
-    async def _extract_text(
-        self, selectors: list[str], fallback_to_body: bool = False
-    ) -> str:
+    async def _extract_text(self, selectors: list[str], fallback_to_body: bool = False) -> str:
         """Try CSS selectors in order, return first match's text content."""
         for selector in selectors:
             try:
@@ -265,8 +261,8 @@ class ProtocolScraper:
             await asyncio.sleep(2)
 
             # 1. Core scalar fields via precise data-test attributes
-            title    = await self._extract_text(['[data-test="text-offerTitle"]'])
-            company  = await self._extract_text(['[data-test="text-offerEmployer"]'])
+            title = await self._extract_text(['[data-test="text-offerTitle"]'])
+            company = await self._extract_text(['[data-test="text-offerEmployer"]'])
             location = await self._extract_text(['[data-test="text-primaryLocation"]'])
             seniority = await self._extract_text(['[data-test="content-positionLevels"]'])
             work_mode = await self._extract_text(['[data-test="content-workModes"]'])
@@ -277,7 +273,11 @@ class ProtocolScraper:
                 try:
                     page_title = await self.browser.page.title()
                     if " - theprotocol.it" in page_title:
-                        core = page_title.removeprefix("Praca ").removesuffix(" - theprotocol.it").strip()
+                        core = (
+                            page_title.removeprefix("Praca ")
+                            .removesuffix(" - theprotocol.it")
+                            .strip()
+                        )
                         parts = [p.strip() for p in core.split(", ")]
                         if not title and parts:
                             title = parts[0]
@@ -322,7 +322,7 @@ class ProtocolScraper:
                         return { required, optional };
                     }
                 """)
-                technologies          = tech_data.get("required", [])
+                technologies = tech_data.get("required", [])
                 technologies_optional = tech_data.get("optional", [])
             except Exception as e:
                 logger.warning(f"Error extracting technologies: {e}")
@@ -342,9 +342,15 @@ class ProtocolScraper:
             requirements_optional: list[str] = []
             responsibilities: list[str] = []
             try:
-                requirements          = await _extract_section_items('[data-test="section-requirements-expected"]')
-                requirements_optional = await _extract_section_items('[data-test="section-requirements-optional"]')
-                responsibilities      = await _extract_section_items('[data-test="section-responsibilities"]')
+                requirements = await _extract_section_items(
+                    '[data-test="section-requirements-expected"]'
+                )
+                requirements_optional = await _extract_section_items(
+                    '[data-test="section-requirements-optional"]'
+                )
+                responsibilities = await _extract_section_items(
+                    '[data-test="section-responsibilities"]'
+                )
             except Exception as e:
                 logger.warning(f"Error extracting requirements/responsibilities: {e}")
 

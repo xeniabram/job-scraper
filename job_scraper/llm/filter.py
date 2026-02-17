@@ -14,7 +14,7 @@ class JobFilter:
         self,
         model: str,
         requirements: dict[str, Any],
-        host: str = "http://localhost:11434",
+        host: str,
     ):
         """Initialize job filter.
 
@@ -134,10 +134,14 @@ Responsibilities:
             }
 
         contracts = job_data.get("contracts", [])
-        salary = "; ".join(
-            f"{c.get('salary', '')} {c.get('units', '')} {c.get('period', '')} | {c.get('type', '')}".strip()
-            for c in contracts
-        ) if contracts else "not specified"
+        salary = (
+            "; ".join(
+                f"{c.get('salary', '')} {c.get('units', '')} {c.get('period', '')} | {c.get('type', '')}".strip()
+                for c in contracts
+            )
+            if contracts
+            else "not specified"
+        )
 
         def fmt_list(items: list[str]) -> str:
             return "\n".join(f"  - {i}" for i in items) if items else "  none"
@@ -180,7 +184,7 @@ Responsibilities:
                     result.setdefault("matched_keywords", [])
                     result.setdefault("unmatched_keywords", [])
 
-                    # Recalculate percentage from keyword lists (LLM can't do math)
+                    # Calculate match percentage from keyword lists
                     total = len(result["job_keywords"])
                     covered = len(result["matched_keywords"])
                     pct = round(covered / total * 100) if total > 0 else 0
@@ -233,9 +237,7 @@ Responsibilities:
                     logger.info(f"Model '{self.model}' is available")
                     return True
 
-            logger.warning(
-                f"Model '{self.model}' not found. Available models: {available_models}"
-            )
+            logger.warning(f"Model '{self.model}' not found. Available models: {available_models}")
             logger.info(f"You can download it with: ollama pull {self.model}")
             return False
 

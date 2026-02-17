@@ -1,4 +1,4 @@
-.PHONY: help setup install scrape filter run dev test-small mock-scrape mock-filter logs errors stats matched clean ollama-start ollama-pull
+.PHONY: help setup install scrape filter run dev test-small mock-scrape mock-filter logs errors stats matched clean ollama-start ollama-pull fmt lint
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -51,6 +51,14 @@ clean: ## Clean logs and cached files
 
 clean-data: ## Delete scraped queue and URL cache to start fresh (keeps matched/rejected results)
 	rm -f data/scraped_jobs.yaml data/.url_cache
+
+fmt: ## Format code and sort imports
+	uv run ruff format .
+	uv run ruff check --select I --fix .
+
+lint: ## Check code style (no fixes)
+	uv run ruff format --check .
+	uv run ruff check .
 
 ollama-start: ## Start Ollama service
 	ollama serve

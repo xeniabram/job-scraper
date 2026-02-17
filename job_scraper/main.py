@@ -99,7 +99,9 @@ async def _scrape_jobs(
     logger.info("\n" + "=" * 60)
     logger.info("Scraping Complete")
     logger.info("=" * 60)
-    logger.info(f"Jobs scraped this session: {scraped_count} (skipped {excluded_count} excluded companies)")
+    logger.info(
+        f"Jobs scraped this session: {scraped_count} (skipped {excluded_count} excluded companies)"
+    )
     logger.info(f"Pending in queue: {pending}")
     logger.info(f"Total URLs seen (cache): {len(yaml_storage.url_cache)}")
 
@@ -121,6 +123,7 @@ async def scrape_main(limit: int | None = None, headless: bool | None = None) ->
 
     if settings.mock_mode:
         from job_scraper.scraper import MockJobBoard
+
         job_board = MockJobBoard(browser=None, view_duration=settings.view_duration_seconds)
         return await _scrape_jobs(job_board, rate_limiter, yaml_storage, max_jobs)
     else:
@@ -185,8 +188,7 @@ async def filter_main(limit: int | None = None) -> int:
             )
             matched_count += 1
             logger.success(
-                f"MATCHED: {job_data.get('title', 'Unknown')} "
-                f"(skillset: {skillset_pct}%)"
+                f"MATCHED: {job_data.get('title', 'Unknown')} (skillset: {skillset_pct}%)"
             )
         else:
             await file_storage.save_rejected_job(

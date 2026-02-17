@@ -80,7 +80,8 @@ class Browser:
     async def goto(
         self,
         url: str,
-        wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"] | None = "domcontentloaded",
+        wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"]
+        | None = "domcontentloaded",
     ) -> None:
         logger.debug(f"Navigating to: {url}")
         await self.page.goto(url, wait_until=wait_until)
