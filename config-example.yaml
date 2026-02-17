@@ -1,0 +1,63 @@
+# Job Search Criteria (theprotocol.it)
+search:
+  # Main search query (optional - can use filters instead)
+  query: "python"
+
+  # Category filter (backend, frontend, qa-testing, devops, security, etc.)
+  # See https://theprotocol.it for available categories
+  category: "backend"
+
+  # Additional filters
+  technology: ""  # e.g., "python", "java", "javascript"
+  location: "warszawa"  # Warsaw (Polish city names in lowercase)
+  experience: ""  # junior, mid, senior
+  remote: false  # Set to true for remote-only jobs
+
+# Job Filtering Requirements (for LLM)
+requirements:
+  # Candidate's skills - matched against job posting keywords
+  skillset:
+    - "Python"
+    - "Backend development"
+    - "AWS"
+    - "Cloud platforms"
+    - "Docker"
+    - "Kubernetes"
+    - "FastAPI"
+    - "Django"
+
+  # Candidate's years of experience - jobs requiring more get rejected
+  years_of_experience: 3
+
+  # Minimum skillset coverage to accept a job (percentage, 0-100)
+  min_skillset_match: 65
+
+  # Target job scope - narrows what the LLM considers relevant
+  # If no level is mentioned in the posting, the job is still considered
+  target_titles:
+    - "Backend Engineer"
+    - "Python Developer"
+    - "Software Engineer"
+    - "Platform Engineer"
+  target_levels:
+    - "Junior"
+    - "Mid"
+    - "Senior"
+
+  # Conditions - human language, ALL must be satisfied for the job to match
+  conditions:
+    - "Location should be remote or hybrid in Warsaw"
+    - "Contract type should be B2B or no mention of contract type. Employment contract-only jobs are not considered"
+    - "Spoken languages: English required. Polish is acceptable too"
+
+# Scraper Behavior
+scraper:
+  daily_limit: 100
+  view_duration_seconds: 20
+  scroll_pause_seconds: 2
+  random_delay_range: [1, 3]
+
+# Output
+output:
+  matched_jobs_file: "data/matched_jobs.txt"
+  rejected_jobs_file: "data/rejected_jobs.txt"

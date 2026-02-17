@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv
+
+# Build / packaging
+dist/
+build/
+*.egg-info/
+
+# Type checkers & linters
+.mypy_cache/
+.ruff_cache/
+
+# Testing
+.pytest_cache/
+
+# Runtime outputs
+data/
+logs/
+
+# Secrets & local config
+.env
+config.yaml
+
+# Misc
+examples/
+.DS_Store
