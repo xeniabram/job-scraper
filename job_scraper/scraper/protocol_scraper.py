@@ -175,16 +175,21 @@ class ProtocolScraper:
         await self._handle_modals()
         await asyncio.sleep(1)
 
-    async def get_job_links(self, max_jobs: int = 100, url_cache=None) -> list[str]:
+    async def get_job_links(
+        self, max_jobs: int = 100, url_cache=None, max_empty_pages: int = 2
+    ) -> list[str]:
         """Paginate through search results using ?pageNumber= param.
 
         Only unseen URLs (not in url_cache) count toward max_jobs.
-        Pagination continues until max_jobs unseen links are collected or no more pages exist.
+        Stops when max_empty_pages consecutive pages yield zero new links,
+        or when the page content repeats (server loop detection).
         """
         logger.info(f"Collecting up to {max_jobs} new job links...")
         unseen_links: list[str] = []
         base_url = self.browser.page.url.split("?")[0]
         page_num = 1
+        prev_page_urls: set[str] = set()
+        consecutive_empty = 0
 
         while len(unseen_links) < max_jobs:
             try:
@@ -201,12 +206,14 @@ class ProtocolScraper:
 
                 page_new = 0
                 page_seen = 0
+                current_page_urls: set[str] = set()
                 for card in job_cards:
                     href = await card.get_attribute("href")
                     if href and "/praca/" in href:
                         clean_url = href.split("?")[0]
                         if not clean_url.startswith("http"):
                             clean_url = "https://theprotocol.it" + clean_url
+                        current_page_urls.add(clean_url)
                         if url_cache is not None and clean_url in url_cache:
                             page_seen += 1
                         elif clean_url not in unseen_links:
@@ -218,10 +225,21 @@ class ProtocolScraper:
                     f" | total new: {len(unseen_links)}"
                 )
 
-                if page_new == 0:
-                    logger.info("All jobs on this page already seen, done")
+                if current_page_urls and current_page_urls == prev_page_urls:
+                    logger.info("Page identical to previous — server looped back, stopping")
                     break
 
+                if page_new == 0:
+                    consecutive_empty += 1
+                    if consecutive_empty >= max_empty_pages:
+                        logger.info(
+                            f"{consecutive_empty} consecutive pages with no new jobs — stopping"
+                        )
+                        break
+                else:
+                    consecutive_empty = 0
+
+                prev_page_urls = current_page_urls
                 page_num += 1
 
             except Exception as e:

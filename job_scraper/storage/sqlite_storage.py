@@ -198,6 +198,12 @@ class SqliteStorage:
             ).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
+    def load_all_jobs(self) -> list[dict[str, Any]]:
+        """Return all jobs regardless of filtered status."""
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM jobs").fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
     def mark_processed(self, url: str) -> None:
         """Mark a job as filtered. Keeps the row for potential reprocessing."""
         with self._connect() as conn:

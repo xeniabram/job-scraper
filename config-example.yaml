@@ -1,60 +1,78 @@
 # Job Search Criteria (theprotocol.it)
 search:
-  # Main search query (optional - can use filters instead)
-  query: "python"
+  # Technology filter — matches theprotocol.it's technology chips (/filtry/{name};t)
+  technology: "python"
 
-  # Category filter (backend, frontend, qa-testing, devops, security, etc.)
-  # See https://theprotocol.it for available categories
+  # Specialization filter — matches theprotocol.it's specialization chips (/filtry/{name};sp)
+  # e.g. "backend", "frontend", "qa-testing", "devops", "security"
   category: "backend"
 
-  # Additional filters
-  technology: ""  # e.g., "python", "java", "javascript"
-  location: "warszawa"  # Warsaw (Polish city names in lowercase)
-  experience: ""  # junior, mid, senior
-  remote: false  # Set to true for remote-only jobs
+  # Contract type filter — matches theprotocol.it's contract chips (/filtry/{name};c)
+  contract: "kontrakt-b2b"
+
+  location: ""      # Leave empty to let LLM filter by conditions below
+  experience: ""    # Leave empty for junior/mid/senior mix
+  remote: false     # Set to true for remote-only jobs
 
 # Job Filtering Requirements (for LLM)
 requirements:
-  # Candidate's skills - matched against job posting keywords
-  skillset:
-    - "Python"
-    - "Backend development"
-    - "AWS"
-    - "Cloud platforms"
-    - "Docker"
-    - "Kubernetes"
-    - "FastAPI"
-    - "Django"
+  # Companies to exclude (case-insensitive partial matching)
+  excluded_companies:
+    - "Example Corp"
+    - "Another Company"
 
-  # Candidate's years of experience - jobs requiring more get rejected
+  # Candidate's skills split by proficiency level.
+  # strong: expert-level — counts as matched regardless of what level the job requires.
+  # basic:  entry-level only — counts as matched ONLY when the job puts the skill in
+  #         nice-to-have / optional, or explicitly states basic/hands-on/familiar is enough.
+  skillset:
+    strong:
+      - "Python"
+      - "FastAPI"
+      - "PostgreSQL"
+      - "Docker"
+      - "REST API"
+      - "Git"
+    basic:
+      - "JavaScript"
+      - "TypeScript"
+
+  # Candidate's years of experience — jobs requiring more get rejected
   years_of_experience: 3
 
-  # Minimum skillset coverage to accept a job (percentage, 0-100)
-  min_skillset_match: 65
+  # Minimum skillset coverage to accept a job (percentage, 0–100)
+  min_skillset_match: 60
 
-  # Target job scope - narrows what the LLM considers relevant
-  # If no level is mentioned in the posting, the job is still considered
-  target_titles:
-    - "Backend Engineer"
-    - "Python Developer"
-    - "Software Engineer"
-    - "Platform Engineer"
+  # Target job levels — jobs with no level mentioned are still considered
   target_levels:
     - "Junior"
     - "Mid"
-    - "Senior"
+    - "Regular"  # Some companies use "Regular" instead of "Mid"
 
-  # Conditions - human language, ALL must be satisfied for the job to match
+  # Conditions — human language, ALL must be satisfied for a job to match
   conditions:
-    - "Location should be remote or hybrid in Warsaw"
-    - "Contract type should be B2B or no mention of contract type. Employment contract-only jobs are not considered"
-    - "Spoken languages: English required. Polish is acceptable too"
+    - "Must be a Python backend developer role."
+    - "Location must be remote or hybrid/on-site in Warsaw, Poland."
+    - "Contract type should be B2B."
+    - "Spoken languages: English or Polish."
+    - "Experience requirement, if present, should be at most 3 years."
+
+# CV sections for LLM-based optimization (optional).
+# When present, each matched job gets customized about_me + keywords
+# rewritten in the job's language to maximize keyword overlap.
+cv_optimization:
+  en:
+    about_me: "Backend engineer with 3 years of experience building scalable Python services..."
+    keywords: "Python, FastAPI, Django, PostgreSQL, Docker, REST API, asyncio, microservices, ..."
+  pl:
+    about_me: "Inżynier backendu z 3-letnim doświadczeniem w budowaniu skalowalnych serwisów Python..."
+    keywords: "Python, FastAPI, Django, PostgreSQL, Docker, REST API, asyncio, mikrousługi, ..."
 
 # Scraper Behavior
 scraper:
-  daily_limit: 500
+  daily_limit: 100
   fetch_interval: 5
-  
+
 # Output
 output:
   matched_jobs_file: "data/matched_jobs.txt"

@@ -1,5 +1,5 @@
 """Configuration management."""
 
-from job_scraper.config.settings import Settings, settings
+from job_scraper.config.settings import CvOptimizationConfig, Settings, settings
 
-__all__ = ["Settings", "settings"]
+__all__ = ["CvOptimizationConfig", "Settings", "settings"]

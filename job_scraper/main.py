@@ -17,7 +17,7 @@ from loguru import logger
 
 from job_scraper.config import settings
 from job_scraper.llm import JobFilter
-from job_scraper.storage import FileStorage, SqliteStorage
+from job_scraper.storage import ResultsStorage, SqliteStorage
 from job_scraper.utils import RateLimiter, setup_logger
 
 
@@ -136,16 +136,17 @@ async def scrape_main(limit: int | None = None, headless: bool = True, mock_mode
 
 
 async def filter_main(limit: int | None = None) -> int:
-    """Filter-only phase: read SQLite queue, send to LLM one-by-one, remove from queue. No browser."""
+    """Filter-only phase: read SQLite queue, send to LLM (up to 150 concurrent), remove from queue. No browser."""
     config = settings.load_config()
 
     storage = SqliteStorage(settings.data_dir)
-    file_storage = FileStorage(settings.data_dir)
+    results = ResultsStorage(settings.data_dir)
 
     job_filter = JobFilter(
         model=settings.openai_model,
         requirements=config.requirements,
         api_key=settings.openai_api_key,
+        profile_log=settings.logs_dir / "api_profile.jsonl",
     )
 
     pending_jobs = storage.load_pending_jobs()
@@ -157,36 +158,48 @@ async def filter_main(limit: int | None = None) -> int:
     if limit:
         pending_jobs = pending_jobs[:limit]
 
-    logger.info(f"Filtering {len(pending_jobs)} jobs one-by-one...")
+    total = len(pending_jobs)
+    logger.info(f"Filtering {total} jobs...")
 
     matched_count = 0
     rejected_count = 0
+    semaphore = asyncio.Semaphore(150)
 
-    for i, job_data in enumerate(pending_jobs, 1):
-        logger.info(f"\n[{i}/{len(pending_jobs)}] Filtering: {job_data.get('title', 'Unknown')}")
+    async def filter_one(job_data: dict[str, Any], index: int) -> None:
+        nonlocal matched_count, rejected_count
+        async with semaphore:
+            logger.info(f"\n[{index}/{total}] Filtering: {job_data.get('title', 'Unknown')}")
 
-        filter_result = await job_filter.filter_job(job_data)
+            filter_result = await job_filter.filter_job(job_data)
 
-        # Write result to text files, then remove from YAML queue
-        if filter_result.match:
-            await file_storage.save_matched_job(
-                job_data["url"],
-                job_data.get("title", ""),
-                skillset_match_percent=filter_result.skillset_match_percent,
-            )
-            matched_count += 1
-            logger.success(
-                f"MATCHED: {job_data.get('title', 'Unknown')} (skillset: {filter_result.skillset_match_percent}%)"
-            )
-        else:
-            await file_storage.save_rejected_job(
-                job_data["url"],
-                filter_result.reason,
-                skillset_match_percent=filter_result.skillset_match_percent,
-            )
-            rejected_count += 1
+            if filter_result.match:
+                cv: dict[str, str] = {}
+                if config.cv_optimization:
+                    cv_result = await job_filter.optimize_cv(job_data, config.cv_optimization)
+                    cv = {"about_me": cv_result.about_me, "keywords": cv_result.keywords}
 
-        storage.mark_processed(job_data["url"])
+                await results.save_matched_job(
+                    url=job_data["url"],
+                    title=job_data.get("title", ""),
+                    company=job_data.get("company", ""),
+                    skillset_match_percent=filter_result.skillset_match_percent,
+                    cv=cv,
+                )
+                matched_count += 1
+                logger.success(
+                    f"MATCHED: {job_data.get('title', 'Unknown')} (skillset: {filter_result.skillset_match_percent}%)"
+                )
+            else:
+                await results.save_rejected_job(
+                    url=job_data["url"],
+                    reason=filter_result.reason,
+                    skillset_match_percent=filter_result.skillset_match_percent,
+                )
+                rejected_count += 1
+
+            storage.mark_processed(job_data["url"])
+
+    await asyncio.gather(*(filter_one(job_data, i + 1) for i, job_data in enumerate(pending_jobs)))
 
     # Summary
     remaining = storage.pending_count()
@@ -196,6 +209,65 @@ async def filter_main(limit: int | None = None) -> int:
     logger.info(f"This session: {matched_count} matched, {rejected_count} rejected")
     logger.info(f"Remaining in queue: {remaining}")
 
+    return 0
+
+
+async def optimize_main(limit: int | None = None) -> int:
+    """Optimize CV sections for already-matched jobs. Reads results.db, writes back cv_about_me/cv_keywords."""
+    config = settings.load_config()
+
+    if not config.cv_optimization:
+        logger.error("No cv_optimization section in config.yaml — nothing to do.")
+        return 1
+
+    results = ResultsStorage(settings.data_dir)
+    scraped = SqliteStorage(settings.data_dir)
+
+    urls = results.load_unoptimized_matched_urls()
+    if not urls:
+        logger.info("All matched jobs are already optimized.")
+        return 0
+
+    if limit:
+        urls = urls[:limit]
+
+    total = len(urls)
+    logger.info(f"Optimizing CV for {total} matched jobs...")
+
+    job_filter = JobFilter(
+        model=settings.openai_model,
+        requirements=config.requirements,
+        api_key=settings.openai_api_key,
+        profile_log=settings.logs_dir / "api_profile.jsonl",
+    )
+
+    # Build a URL→job_data lookup from scraped_jobs.db
+    all_scraped = {job["url"]: job for job in scraped.load_all_jobs()}
+
+    semaphore = asyncio.Semaphore(150)
+    done = 0
+    skipped = 0
+
+    async def optimize_one(url: str, index: int) -> None:
+        nonlocal done, skipped
+        async with semaphore:
+            job_data = all_scraped.get(url)
+            if not job_data:
+                logger.warning(f"[{index}/{total}] No scraped data for {url} — skipping")
+                skipped += 1
+                return
+
+            logger.info(f"[{index}/{total}] Optimizing: {job_data.get('title', url)}")
+            cv_result = await job_filter.optimize_cv(job_data, config.cv_optimization)
+            results.update_cv(url, cv_result.about_me, cv_result.keywords)
+            done += 1
+
+    await asyncio.gather(*(optimize_one(url, i + 1) for i, url in enumerate(urls)))
+
+    logger.info("\n" + "=" * 60)
+    logger.info("Optimization Complete")
+    logger.info("=" * 60)
+    logger.info(f"Optimized: {done} | Skipped (no scraped data): {skipped}")
     return 0
 
 
@@ -232,6 +304,15 @@ def parse_args() -> argparse.Namespace:
     run_parser = subparsers.add_parser("run", help="Scrape then filter (sequential)")
     run_parser.add_argument("--limit", type=int, help="Max jobs to process")
 
+    # optimize — generate CV sections for already-matched jobs
+    optimize_parser = subparsers.add_parser(
+        "optimize", help="Generate optimized CV sections for matched jobs (reads results.db)"
+    )
+    optimize_parser.add_argument("--limit", type=int, help="Max jobs to optimize this run")
+
+    # review — interactive UI to mark matched jobs as applied
+    subparsers.add_parser("review", help="Open UI to review matched jobs and mark as applied")
+
     # reprocess — reset filtered_at so filter can run again on all jobs
     subparsers.add_parser("reprocess", help="Reset all filtered jobs so they can be re-filtered")
 
@@ -251,6 +332,8 @@ async def main(args: argparse.Namespace) -> int:
             return await scrape_main(limit=args.limit, headless=args.headless)
         elif args.command == "filter":
             return await filter_main(limit=args.limit)
+        elif args.command == "optimize":
+            return await optimize_main(limit=args.limit)
         elif args.command == "run":
             return await run_main(limit=args.limit)
         elif args.command == "reprocess":
@@ -259,7 +342,7 @@ async def main(args: argparse.Namespace) -> int:
             logger.info(f"Reset {count} jobs — run 'filter' to reprocess them")
             return 0
         else:
-            logger.error("Unknown command. Use: scrape, filter, run, or reprocess")
+            logger.error("Unknown command. Use: scrape, filter, optimize, run, or reprocess")
             return 1
 
     except KeyboardInterrupt:
@@ -276,9 +359,14 @@ def cli() -> None:
 
     if not args.command:
         parse_args()  # triggers help
-        print("\nPlease specify a command: scrape, filter, or run")
+        print("\nPlease specify a command: scrape, filter, optimize, review, or run")
         print("  Example: uv run job-scraper scrape --limit 20")
         sys.exit(1)
+
+    if args.command == "review":
+        from job_scraper.ui.review import run_review
+        run_review()
+        sys.exit(0)
 
     exit_code = asyncio.run(main(args))
     sys.exit(exit_code)

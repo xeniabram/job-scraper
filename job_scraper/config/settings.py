@@ -11,11 +11,23 @@ class ScraperConfig(BaseModel):
     daily_limit: int
     fetch_interval: int
 
+
+class CvSection(BaseModel):
+    about_me: str = ""
+    keywords: str = ""
+
+
+class CvOptimizationConfig(BaseModel):
+    en: CvSection = Field(default_factory=CvSection)
+    pl: CvSection = Field(default_factory=CvSection)
+
+
 class Config(BaseModel):
     search: dict
     requirements: dict
     scraper: ScraperConfig
     output: dict
+    cv_optimization: CvOptimizationConfig | None = None
 
 
 class Settings(BaseSettings):
