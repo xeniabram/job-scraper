@@ -14,54 +14,36 @@ A modern, AI-powered job scraping tool for public job boards (for now, theprotoc
 - Python 3.13+
 - [uv](https://github.com/astral-sh/uv) - Fast Python package manager
 
-## Installation
+## Installation (WSL)
 
 
-1. **Install project dependencies**:
+1. **Install uv**: https://docs.astral.sh/uv/getting-started/installation/
+2. **Navigate to project directory and install dependencies with**:
    ```bash
    uv sync
    ```
-
-2. **Install Playwright browsers**:
+3. **activate virtual environment**
+    ```bash
+    source .venv/bin/activate
+    ```
+4. **Verify installation**
    ```bash
-   uv run playwright install chromium
+   job-scraper --help
    ```
+5. **copy config example to config.yaml and customize it to your preferences**
+    ```bash
+    cp config-example.yaml config.yaml
+    ```
+6. **copy env example to .env and customize**
 
-## Configuration
-
-1. **Create `.env` file** from the template:
    ```bash
    cp .env.example .env
    ```
-
-2. **Edit `.env`** with your settings
-
-3. **Copy and customize `config.yaml`** with your job search criteria:
+7. **run scraper**
    ```bash
-   cp config-example.yaml config.yaml
+   job-scraper scrape
    ```
-   ```yaml
-   search:
-     technology: "python"        # theprotocol.it technology filter
-     category: "backend"         # backend, frontend, devops, etc. (leave empty for all)
-     contract: "kontrakt-b2b"    # contract type filter (leave empty for all)
 
-   scraper:
-     daily_limit: 100            # max jobs to scrape per day
-     view_duration_seconds: 3    # seconds to spend on each job page
-
-   requirements:
-     skillset:
-       - "Python"
-       - "FastAPI"
-     years_of_experience: 2
-     min_skillset_match: 60      # reject if LLM match % is below this
-     excluded_companies:
-       - "some company"          # skipped before LLM, case-insensitive substring match
-     conditions:
-       - "Location must be remote or hybrid in Warsaw"
-       - "Contract type should be B2B"
-   ```
 
 ## Usage
 
@@ -75,6 +57,8 @@ uv run job-scraper <command> [options]
 |---------|-------------|
 | `scrape` | Opens a browser, paginates through job listings, saves raw job data to `data/scraped_jobs.db` |
 | `filter` | Reads the SQLite queue, sends each job to the LLM, writes results to `matched_jobs.txt` / `rejected_jobs.txt` |
+| `optimize` | Reads the matched jobs, sends each job to the LLM, optimizes your cv sections |
+| `review` | opens ui to review matched jobs with optimized cv sections |
 | `run` | Runs `scrape` then `filter` sequentially (browser closes before LLM starts) |
 
 ### Common invocations
