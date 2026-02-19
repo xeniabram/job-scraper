@@ -40,3 +40,10 @@ ignore = ["E501", "E722"]  # line length enforced by formatter, not linter
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+[project.scripts]
+job-scraper = "job_scraper.main:cli"
+
+[build-system]
+requires = ["uv_build>=0.10.4,<0.11.0"]
+build-backend = "uv_build"
