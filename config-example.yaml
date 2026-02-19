@@ -1,20 +1,70 @@
-# Job Search Criteria (theprotocol.it)
+# Job Search Criteria
+# Each scraper reads its own subsection (--source protocol | justjoinit).
 search:
-  # Technology filter — matches theprotocol.it's technology chips (/filtry/{name};t)
-  technology: "python"
 
-  # Specialization filter — matches theprotocol.it's specialization chips (/filtry/{name};sp)
-  # e.g. "backend", "frontend", "qa-testing", "devops", "security"
-  category: "backend"
+  # ── theprotocol.it  (--source protocol, default) ────────────────────
+  protocol:
+    technologies_must:
+      - "node.js"
+      - "python"
+      # supported: node.js | net | angular | aws | c | c# | c++ | go | hibernate | html | ios | java | rust | sql | ruby | react.js | python | r | php | javascript | android | typescript
+    technologies_nice:
+      - "aws"
+      - "rust"
+    # supported: node.js | net | angular | aws | c | c# | c++ | go | hibernate | html | ios | java | rust | sql | ruby | react.js | python | r | php | javascript | android | typescript
+    technologies_not:
+      - "php"
+    # supported: node.js | net | angular | aws | c | c# | c++ | go | hibernate | html | ios | java | rust | sql | ruby | react.js | python | r | php | javascript | android | typescript
+    specializations:
+      - "backend"
+      - "architecture"
+    # supported: backend | frontend | qa-testing | security | devops | helpdesk | it-admin | data-analytics-bi | big-data-science | ux-ui | ai-ml | project-management | fullstack | mobile | embedded | gamedev | architecture | business-analytics | agile | product-management | sap-erp | system-analytics
+    seniority_levels:
+      - "senior"
+      - "expert"
+    # supported: trainee | assistant | junior | mid | senior | expert | lead | manager | head | executive
+    contracts:
+      - "kontrakt-b2b"
+    # supported: kontrakt-b2b | umowa-o-prace | umowa-zlecenie | umowa-o-dzielo | umowa-na-zastepstwo | umowa-agencyjna | umowa-o-prace-tymczasowa | umowa-o-staz-praktyki
+    work_modes:
+      - "zdalna"
+      - "hybrydowa"
+    # supported: zdalna | hybrydowa | stacjonarna
+    locations:
+      - "warszawa"
+      - "krakow"
+    # supported: any city name as a string (e.g., warszawa, krakow, wroclaw, gdansk)
+    salary: 20000
+    # supported: any integer
+    project_description_present: false
+    # supported: true | false
 
-  # Contract type filter — matches theprotocol.it's contract chips (/filtry/{name};c)
-  contract: "kontrakt-b2b"
+  # ── justjoin.it  (--source justjoin) ────────────────────────────────
+  # robots.txt disallows /api/ — scraper uses HTML pages + sitemap only.
+  justjoin:
+    technology: "python"
+      # supported: admin | ai | analytics | architecture | c | data | devops | erp | game | go |
+      # html | java | javascript | mobile | net | other | php | pm | python | ruby | scala | security | 
+      # support | testing | ux
+    employment_type:
+      - "b2b"
+      - "permanent"
+    # supported: b2b | internship | mandate-contract | permanent | specific-task-contract
+    experience_level:
+      - "mid"
+      - "senior"
+    # supported: c-level | junior | mid | senior
+    workplace:
+      - "hybrid"
+    # supported: hybrid | office
+    location: "warszawa"
+    # supported remote | all-locations | or other (eg. krakow, wroclaw)
+    salary: 15000
+    # int
+    with_salary: "yes"
+    #  supported: yes | null (leave blank or remove key)
 
-  location: ""      # Leave empty to let LLM filter by conditions below
-  experience: ""    # Leave empty for junior/mid/senior mix
-  remote: false     # Set to true for remote-only jobs
-
-# Job Filtering Requirements (for LLM)
+  # Job Filtering Requirements (for LLM)
 requirements:
   # Companies to exclude (case-insensitive partial matching)
   excluded_companies:

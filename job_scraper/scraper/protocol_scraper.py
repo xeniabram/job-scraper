@@ -1,409 +1,263 @@
-"""theprotocol.it job board scraper implementation."""
+"""theprotocol.it job board scraper — lightweight HTTP implementation.
+
+No browser required. Uses curl_cffi to bypass Cloudflare and BeautifulSoup
+to parse HTML via stable data-test attributes.
+"""
 
 import asyncio
-from typing import Any
+import itertools
+from collections.abc import Callable, Iterable
+from typing import Annotated, Any, Literal
 
+from bs4 import BeautifulSoup
+from curl_cffi.requests import AsyncSession
 from loguru import logger
+from pydantic import BaseModel, PlainSerializer, TypeAdapter, model_validator
 
-from job_scraper.scraper.browser import Browser
+from job_scraper.storage.sqlite_storage import UrlCache
+
+
+def serialize_with_suffix(suffix: str) -> Callable[[set[str] | str], str]:
+    def inner(input: set[str] | str) -> str:
+        if not input:
+            return ""
+        if isinstance(input, Iterable) and not isinstance(input, str):
+            return ",".join(list(input)) + suffix
+        return input + suffix
+    return inner
+
+
+type TechLiteral = set[Literal[
+    "node.js", "net", "angular", "aws", "c", "c#", "c++",
+    "go", "hibernate", "html", "ios", "java", "rust",
+    "sql", "ruby", "react.js", "python", "r", "php",
+    "javascript", "android", "typescript"
+]]
+
+
+class Params(BaseModel):
+    technologies_must: Annotated[TechLiteral | None, PlainSerializer(serialize_with_suffix(";t"), when_used="unless-none")] = None
+    technologies_nice: Annotated[TechLiteral | None, PlainSerializer(serialize_with_suffix(";nt"), when_used="unless-none")] = None
+    technologies_not: TechLiteral | None = None
+    specializations: Annotated[set[Literal[
+        "backend", "frontend", "qa-testing", "security", "devops",
+        "helpdesk", "it-admin", "data-analytics-bi", "big-data-science",
+        "ux-ui", "ai-ml", "project-management", "fullstack", "mobile",
+        "embedded", "gamedev", "architecture", "business-analytics",
+        "agile", "product-management", "sap-erp", "system-analytics"
+    ]] | None, PlainSerializer(serialize_with_suffix(";sp"), when_used="unless-none")] = None
+    seniority_levels: Annotated[
+        set[Literal[
+            "trainee", "assistant", "junior", "mid",
+            "senior", "expert", "lead", "manager",
+            "head", "executive"
+        ]] | None,
+        PlainSerializer(serialize_with_suffix(";p"), when_used="unless-none")
+    ] = None
+    contracts: Annotated[list[Literal[
+        "kontrakt-b2b", "umowa-o-prace", "umowa-zlecenie",
+        "umowa-o-dzielo", "umowa-na-zastepstwo", "umowa-agencyjna",
+        "umowa-o-prace-tymczasowa", "umowa-o-staz-praktyki"
+    ]] | None, PlainSerializer(serialize_with_suffix(";c"), when_used="unless-none")] = None
+    work_modes: Annotated[
+        set[Literal["zdalna", "hybrydowa", "stacjonarna"]] | None,
+        PlainSerializer(serialize_with_suffix(";rw"), when_used="unless-none")
+    ] = None
+    locations: Annotated[
+        set[str] | None,
+        PlainSerializer(serialize_with_suffix(";wp"), when_used="unless-none")
+    ] = None
+    salary: Annotated[int | None, PlainSerializer(serialize_with_suffix(";s"), when_used="unless-none")] = None
+    project_description_present: bool = False
+
+    @model_validator(mode="after")
+    def validate_unique_tech(self) -> "Params":
+        must_set = self.technologies_must or set()
+        nice_set = self.technologies_nice or set()
+        not_set = self.technologies_not or set()
+
+        if overlap := must_set & nice_set:
+            raise ValueError(f"Technologies cannot be both 'must' and 'nice': {overlap}")
+        if overlap := must_set & not_set:
+            raise ValueError(f"Technologies cannot be both 'must' and 'not': {overlap}")
+        if overlap := nice_set & not_set:
+            raise ValueError(f"Technologies cannot be both 'nice' and 'not': {overlap}")
+        return self
+
+    @property
+    def query_params(self) -> str:
+        parts: list[str] = []
+        if self.technologies_not:
+            parts.extend(f"et={tech}" for tech in self.technologies_not)
+        if self.project_description_present:
+            parts.append("context=projects")
+        return "&".join(parts)
+    
+    @property
+    def segments(self) -> str:
+        data = self.model_dump(exclude_none=True, exclude={"project_description_present", "technologies_not"})
+        return "/".join(data.values())
+
+ParamList = TypeAdapter(list[Params])
+
+BASE_URL = "https://theprotocol.it"
+_IMPERSONATE = "chrome120"
 
 
 class ProtocolScraper:
-    """Job board scraper for theprotocol.it (no authentication required)."""
+    """Scraper for theprotocol.it using HTTP requests + HTML parsing."""
 
-    # CSS selectors for theprotocol.it
-    SELECTORS: dict[str, list[str]] = {
-        "job_cards": [
-            '[data-test="list-item-offer"]',
-        ],
-        "title": [
-            '[data-test="text-jobTitle"]',
-            "h1",
-            "h2.tico6j0",
-        ],
-        "company": [
-            'a[href*="/firmy-it/"]',
-            '[data-test*="company"]',
-            '[class*="company"]',
-        ],
-        "location": [
-            '[data-test*="location"]',
-            '[class*="location"]',
-        ],
-        "description": [
-            '[data-test*="description"]',
-            "article",
-            "main p",
-        ],
-        "technologies": [
-            '[data-test*="tech"]',
-            '[data-test*="skill"]',
-            '[class*="technology"]',
-        ],
-    }
+    def __init__(self, delay: float, config: list[dict[str, Any]]):
+        self._delay = delay
+        self._session: AsyncSession | None = None
+        param_list = ParamList.validate_python(config)
+        self._search_urls = [self._build_listing_url(param) for param in param_list]
 
-    # Modal/popup selectors
-    COOKIE_CONSENT_SELECTORS = [
-        'button:has-text("Akceptuj")',
-        'button:has-text("Zgadzam się")',
-        'button:has-text("Accept")',
-    ]
+    async def __aenter__(self) -> "ProtocolScraper":
+        self._session = AsyncSession(impersonate=_IMPERSONATE)
+        return self
 
-    LANGUAGE_SELECTORS = [
-        'button:has-text("PL")',
-        'button:has-text("Polski")',
-    ]
+    async def __aexit__(self, *_: Any) -> None:
+        if self._session:
+            await self._session.close()
+            self._session = None
 
-    def __init__(self, browser: Browser):
-        self.browser = browser
-        self._modals_handled = False
-
-    # ------------------------------------------------------------------
-    # Initialization - handle modals
-    # ------------------------------------------------------------------
-
-    async def _handle_modals(self) -> None:
-        """Handle cookie consent and language selection modals on first visit."""
-        if self._modals_handled:
-            return
-
-        logger.debug("Checking for modals...")
-
-        # Handle cookie consent
-        for selector in self.COOKIE_CONSENT_SELECTORS:
-            try:
-                button = self.browser.page.locator(selector).first
-                if await button.is_visible(timeout=2000):
-                    logger.debug(f"Accepting cookies: {selector}")
-                    await button.click()
-                    await asyncio.sleep(1)
-                    break
-            except:
-                continue
-
-        # Handle language selection
-        for selector in self.LANGUAGE_SELECTORS:
-            try:
-                button = self.browser.page.locator(selector).first
-                if await button.is_visible(timeout=2000):
-                    logger.debug(f"Selecting language: {selector}")
-                    await button.click()
-                    await asyncio.sleep(2)
-                    break
-            except:
-                continue
-
-        self._modals_handled = True
-        logger.debug("Modals handled")
-
-    # ------------------------------------------------------------------
-    # Session / login (not needed for theprotocol.it!)
-    # ------------------------------------------------------------------
-
-    async def ensure_logged_in(self) -> bool:
-        """theprotocol.it doesn't require authentication - always returns True."""
-        logger.info("theprotocol.it doesn't require login - proceeding...")
-        return True
-
-    # Backward-compat alias
-    login = ensure_logged_in
-
-    # ------------------------------------------------------------------
-    # Search URL building
-    # ------------------------------------------------------------------
 
     @staticmethod
-    def build_search_url(filters: dict[str, Any] | None = None) -> str:
-        """Build a theprotocol.it filter URL.
+    def _build_listing_url(config: Params) -> str:
+        """Build a theprotocol.it filter URL from config dict."""
+        query = config.query_params
+        return BASE_URL + "/filtry/" + config.segments + (f"?{query}" if query else "")
 
-        Uses the same path segments the site produces when you pick filters
-        from its UI:
-          - technology  → /filtry/{technology};t    (e.g. "python" → /filtry/python;t)
-          - category    → /filtry/{category};sp     (e.g. "backend" → /filtry/backend;sp)
-          - contract    → /filtry/{contract};c      (e.g. "kontrakt-b2b" → /filtry/kontrakt-b2b;c)
 
-        Args:
-            filters: Dictionary of filters from config.yaml `search:` section.
-                - technology: python, java, javascript, etc.
-                - category:   backend, frontend, qa-testing, devops, etc.
-                - contract:   kontrakt-b2b, umowa-o-prace, etc.
-                - remote:     true/false
-
-        Returns:
-            Full search URL
-        """
-        filters = filters or {}
-
-        technology = filters.get("technology", "").strip().lower()
-        category = filters.get("category", "").strip().lower()
-        contract = filters.get("contract", "").strip().lower()
-
-        segments: list[str] = []
-        if category:
-            segments.append(f"{category};sp")
-        if technology:
-            segments.append(f"{technology};t")
-        if contract:
-            segments.append(f"{contract};c")
-
-        if segments:
-            url = "https://theprotocol.it/filtry/" + "/".join(segments)
-        else:
-            url = "https://theprotocol.it/"
-
-        return url
-
-    # ------------------------------------------------------------------
-    # Navigation + link collection
-    # ------------------------------------------------------------------
-
-    async def navigate_to_jobs(self, search_params: dict[str, Any]) -> None:
-        """Navigate to job search results.
-
-        Args:
-            search_params: Dictionary from config.yaml `search:` section.
-                - technology: e.g. "python"
-                - category: e.g. "backend"
-        """
-        url = self.build_search_url(search_params)
-
-        logger.info(f"Navigating to: {url}")
-        await self.browser.goto(url)
-        await asyncio.sleep(2)
-
-        # Handle modals on first visit
-        await self._handle_modals()
-        await asyncio.sleep(1)
+    async def _get(self, url: str) -> BeautifulSoup:
+        if not self._session:
+            raise RuntimeError("Use 'async with ProtocolScraper() as s:' context manager.")
+        resp = await self._session.get(
+            url,
+            headers={"Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return BeautifulSoup(resp.text, "html.parser")
 
     async def get_job_links(
-        self, max_jobs: int = 100, url_cache=None, max_empty_pages: int = 2
+        self,
+        max_jobs: int,
+        url_cache: UrlCache,
     ) -> list[str]:
-        """Paginate through search results using ?pageNumber= param.
+        """Paginate all search URLs and return up to max_jobs unseen job links."""
+        unseen: list[str] = []
+        seen: set[str] = set()
 
-        Only unseen URLs (not in url_cache) count toward max_jobs.
-        Stops when max_empty_pages consecutive pages yield zero new links,
-        or when the page content repeats (server loop detection).
-        """
-        logger.info(f"Collecting up to {max_jobs} new job links...")
-        unseen_links: list[str] = []
-        base_url = self.browser.page.url.split("?")[0]
-        page_num = 1
-        prev_page_urls: set[str] = set()
-        consecutive_empty = 0
+        for search_url in self._search_urls:
+            sep = "&" if "?" in search_url else "?"
+            for page_num in itertools.count(1):
+                suffix = f"{sep}pageNumber={page_num}" if page_num > 1 else ""
+                try:
+                    soup = await self._get(f"{search_url}{suffix}")
+                except Exception as e:
+                    logger.warning(f"Fetch error ({search_url} p{page_num}): {e}")
+                    break
 
-        while len(unseen_links) < max_jobs:
-            try:
-                if page_num > 1:
-                    url = f"{base_url}?pageNumber={page_num}"
-                    await self.browser.page.goto(url, wait_until="domcontentloaded")
-                    await asyncio.sleep(2)
-
-                job_cards = await self.browser.page.locator('[data-test="list-item-offer"]').all()
-
-                if not job_cards:
-                    logger.info(f"No job cards on page {page_num}, done")
+                cards = soup.select('a[data-test="list-item-offer"]')
+                if not cards:
                     break
 
                 page_new = 0
-                page_seen = 0
-                current_page_urls: set[str] = set()
-                for card in job_cards:
-                    href = await card.get_attribute("href")
-                    if href and "/praca/" in href:
-                        clean_url = href.split("?")[0]
-                        if not clean_url.startswith("http"):
-                            clean_url = "https://theprotocol.it" + clean_url
-                        current_page_urls.add(clean_url)
-                        if url_cache is not None and clean_url in url_cache:
-                            page_seen += 1
-                        elif clean_url not in unseen_links:
-                            unseen_links.append(clean_url)
-                            page_new += 1
+                page_all = 0
+                for card in cards:
+                    href = str(card.get("href") or "")
+                    if not href:
+                        continue
+                    page_all += 1
+                    full_url = (BASE_URL + href) if not href.startswith("http") else href
+                    full_url = full_url.split("?")[0]
+                    if full_url in seen or full_url in url_cache:
+                        continue
+                    seen.add(full_url)
+                    unseen.append(full_url)
+                    page_new += 1
+                    if len(unseen) >= max_jobs:
+                        logger.info(f"Collected {len(unseen)} job links")
+                        return unseen
+                logger.info(f"Page {page_num}: {page_new} new | total new: {len(unseen)} | total on page: {page_all}")
 
-                logger.info(
-                    f"Page {page_num}: {page_new} new, {page_seen} already seen"
-                    f" | total new: {len(unseen_links)}"
-                )
+                await asyncio.sleep(self._delay)
 
-                if current_page_urls and current_page_urls == prev_page_urls:
-                    logger.info("Page identical to previous — server looped back, stopping")
-                    break
-
-                if page_new == 0:
-                    consecutive_empty += 1
-                    if consecutive_empty >= max_empty_pages:
-                        logger.info(
-                            f"{consecutive_empty} consecutive pages with no new jobs — stopping"
-                        )
-                        break
-                else:
-                    consecutive_empty = 0
-
-                prev_page_urls = current_page_urls
-                page_num += 1
-
-            except Exception as e:
-                logger.warning(f"Error collecting links on page {page_num}: {e}")
-                break
-
-        result = unseen_links[:max_jobs]
-        logger.info(f"Collected {len(result)} new job links across {page_num} page(s)")
-        return result
-
-    # ------------------------------------------------------------------
-    # Job detail extraction
-    # ------------------------------------------------------------------
-
-    async def _extract_text(self, selectors: list[str], fallback_to_body: bool = False) -> str:
-        """Try CSS selectors in order, return first match's text content."""
-        for selector in selectors:
-            try:
-                element = await self.browser.page.query_selector(selector)
-                if element:
-                    text = await element.text_content()
-                    if text and text.strip():
-                        return text.strip()
-            except Exception:
-                continue
-
-        if fallback_to_body:
-            try:
-                text = await self.browser.page.evaluate("""
-                    () => {
-                        const main = document.querySelector('main')
-                            || document.querySelector('[role="main"]')
-                            || document.body;
-                        return main ? main.innerText : '';
-                    }
-                """)
-                if text:
-                    return text.strip()
-            except Exception:
-                pass
-
-        return ""
+        logger.info(f"Collected {len(unseen)} job links")
+        return unseen
 
     async def view_job(self, job_url: str) -> dict[str, Any]:
-        """View a job posting and extract structured data using data-test selectors."""
+        """Fetch a job detail page and extract structured data."""
         try:
-            await self.browser.goto(job_url)
-            await asyncio.sleep(2)
-
-            # 1. Core scalar fields via precise data-test attributes
-            title = await self._extract_text(['[data-test="text-offerTitle"]'])
-            company = await self._extract_text(['[data-test="text-offerEmployer"]'])
-            location = await self._extract_text(['[data-test="text-primaryLocation"]'])
-            seniority = await self._extract_text(['[data-test="content-positionLevels"]'])
-            work_mode = await self._extract_text(['[data-test="content-workModes"]'])
-
-            # Fallback: parse <title> tag when DOM fields are missing
-            # Format: "Praca {title}, {company}, {city} - theprotocol.it"
-            if not title or not company or not location:
-                try:
-                    page_title = await self.browser.page.title()
-                    if " - theprotocol.it" in page_title:
-                        core = (
-                            page_title.removeprefix("Praca ")
-                            .removesuffix(" - theprotocol.it")
-                            .strip()
-                        )
-                        parts = [p.strip() for p in core.split(", ")]
-                        if not title and parts:
-                            title = parts[0]
-                        if not location and len(parts) >= 3:
-                            location = parts[-1]
-                        if not company and len(parts) >= 3:
-                            company = ", ".join(parts[1:-1])
-                        elif not company and len(parts) == 2:
-                            company = parts[1]
-                except Exception as e:
-                    logger.warning(f"Error parsing page title: {e}")
-
-            # 2. Contracts — each block has salary, units, period, contract type
-            contracts: list[dict[str, str]] = []
-            try:
-                contracts = await self.browser.page.evaluate("""
-                    () => {
-                        const blocks = document.querySelectorAll('[data-test="section-contract"]');
-                        return Array.from(blocks).map(block => ({
-                            salary:  block.querySelector('[data-test="text-contractSalary"]')?.textContent.trim() || '',
-                            units:   block.querySelector('[data-test="text-contractUnits"]')?.textContent.trim() || '',
-                            period:  block.querySelector('[data-test="text-contractTimeUnits"]')?.textContent.trim() || '',
-                            type:    block.querySelector('[data-test="text-contractName"]')?.textContent.trim() || '',
-                        }));
-                    }
-                """)
-            except Exception as e:
-                logger.warning(f"Error extracting contracts: {e}")
-
-            # 3. Technologies — required (data-icon=true) vs optional (data-icon=false)
-            technologies: list[str] = []
-            technologies_optional: list[str] = []
-            try:
-                tech_data = await self.browser.page.evaluate("""
-                    () => {
-                        const chips = document.querySelectorAll('[data-test="chip-technology"]');
-                        const required = [], optional = [];
-                        chips.forEach(chip => {
-                            const name = chip.getAttribute('title') || chip.textContent.trim();
-                            (chip.getAttribute('data-icon') === 'true' ? required : optional).push(name);
-                        });
-                        return { required, optional };
-                    }
-                """)
-                technologies = tech_data.get("required", [])
-                technologies_optional = tech_data.get("optional", [])
-            except Exception as e:
-                logger.warning(f"Error extracting technologies: {e}")
-
-            # 4. Requirements, nice-to-haves, responsibilities
-            def _extract_section_items(selector: str):
-                return self.browser.page.evaluate(f"""
-                    () => {{
-                        const sec = document.querySelector('{selector}');
-                        if (!sec) return [];
-                        return Array.from(sec.querySelectorAll('[data-test="text-sectionItem"], li'))
-                            .map(el => el.textContent.trim()).filter(t => t.length > 0);
-                    }}
-                """)
-
-            requirements: list[str] = []
-            requirements_optional: list[str] = []
-            responsibilities: list[str] = []
-            try:
-                requirements = await _extract_section_items(
-                    '[data-test="section-requirements-expected"]'
-                )
-                requirements_optional = await _extract_section_items(
-                    '[data-test="section-requirements-optional"]'
-                )
-                responsibilities = await _extract_section_items(
-                    '[data-test="section-responsibilities"]'
-                )
-            except Exception as e:
-                logger.warning(f"Error extracting requirements/responsibilities: {e}")
-
-            if not title and not technologies and not requirements:
-                logger.warning(f"Could not extract data from {job_url}")
-
-            job_data = {
-                "url": job_url,
-                "title": title,
-                "company": company,
-                "location": location,
-                "seniority": seniority.strip() if seniority else "",
-                "work_mode": work_mode.strip() if work_mode else "",
-                "contracts": contracts,
-                "technologies": technologies,
-                "technologies_optional": technologies_optional,
-                "requirements": requirements,
-                "requirements_optional": requirements_optional,
-                "responsibilities": responsibilities,
-            }
-
-            logger.info(f"Viewing job: {title or 'Unknown'} at {company or 'Unknown'}")
-            return job_data
-
+            soup = await self._get(job_url)
         except Exception as e:
-            logger.error(f"Error viewing job {job_url}: {e}")
+            logger.error(f"Failed to fetch {job_url}: {e}")
             return {"url": job_url, "error": str(e)}
+
+        def text(selector: str) -> str:
+            el = soup.select_one(selector)
+            return el.get_text(strip=True) if el else ""
+
+        title = text('[data-test="text-offerTitle"]')
+        company = text('[data-test="text-offerEmployer"]')
+        location = text('[data-test="text-primaryLocation"]')
+        seniority = text('[data-test="content-positionLevels"]')
+        work_mode = text('[data-test="content-workModes"]')
+
+        # Contracts — one block per contract type offered
+        contracts: list[dict[str, str]] = []
+        for block in soup.select('[data-test="section-contract"]'):
+
+            def _t(sel: str, parent: Any = block) -> str:
+                el = parent.select_one(sel)
+                return el.get_text(strip=True) if el else ""
+
+            contracts.append(
+                {
+                    "salary": _t('[data-test="text-contractSalary"]'),
+                    "units": _t('[data-test="text-contractUnits"]'),
+                    "period": _t('[data-test="text-contractTimeUnits"]'),
+                    "type": _t('[data-test="text-contractName"]'),
+                }
+            )
+
+        # Technologies: data-icon="true" → required, "false" → optional
+        technologies: list[str] = []
+        technologies_optional: list[str] = []
+        for chip in soup.select('[data-test="chip-technology"]'):
+            name = str(chip.get("title") or chip.get_text(strip=True))
+            if str(chip.get("data-icon", "")) == "true":
+                technologies.append(name)
+            else:
+                technologies_optional.append(name)
+
+        def section_items(selector: str) -> list[str]:
+            sec = soup.select_one(selector)
+            if not sec:
+                return []
+            return [li.get_text(strip=True) for li in sec.select("li") if li.get_text(strip=True)]
+
+        requirements = section_items('[data-test="section-requirements-expected"]')
+        requirements_optional = section_items('[data-test="section-requirements-optional"]')
+        responsibilities = section_items('[data-test="section-responsibilities"]')
+
+        if not title and not technologies and not requirements:
+            logger.warning(f"No data extracted from {job_url}")
+
+        logger.info(f"Viewed: {title or 'Unknown'} @ {company or 'Unknown'}")
+        return {
+            "url": job_url,
+            "title": title,
+            "company": company,
+            "location": location,
+            "seniority": seniority,
+            "work_mode": work_mode,
+            "contracts": contracts,
+            "technologies": technologies,
+            "technologies_optional": technologies_optional,
+            "requirements": requirements,
+            "requirements_optional": requirements_optional,
+            "responsibilities": responsibilities,
+        }

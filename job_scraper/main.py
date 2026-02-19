@@ -17,6 +17,7 @@ from loguru import logger
 
 from job_scraper.config import settings
 from job_scraper.llm import JobFilter
+from job_scraper.scraper import JobBoard, scrapers
 from job_scraper.storage import ResultsStorage, SqliteStorage
 from job_scraper.utils import RateLimiter, setup_logger
 
@@ -39,23 +40,13 @@ def _is_excluded_company(company: str, excluded: list[str]) -> bool:
 
 
 async def _scrape_jobs(
-    job_board: Any,
+    job_board: JobBoard,
     rate_limiter: RateLimiter,
     storage: SqliteStorage,
     max_jobs: int,
+    excluded_companies: list[str],
 ) -> int:
     """Scrape jobs and save to SQLite. No LLM involved."""
-    # Login
-    if not await job_board.login():
-        logger.error("Failed to login.")
-        return 1
-
-    config = settings.load_config()
-    excluded_companies: list[str] = config.requirements.get("excluded_companies", [])
-
-    # Navigate to jobs with filters
-    await job_board.navigate_to_jobs(config.search)
-
     # Get job links — limit applies to unseen jobs only
     max_jobs = min(max_jobs, rate_limiter.remaining_requests)
     new_jobs = await job_board.get_job_links(max_jobs=max_jobs, url_cache=storage.url_cache)
@@ -106,33 +97,30 @@ async def _scrape_jobs(
     return 0
 
 
-async def scrape_main(limit: int | None = None, headless: bool = True, mock_mode: bool = False) -> int:
-    """Scrape-only phase: browser + extraction, save to SQLite. No LLM."""
+async def scrape_main(
+    limit: int | None = None,
+    source: str = "protocol",
+) -> int:
+    """Scrape-only phase: extract jobs, save to SQLite. No LLM.
+
+    Args:
+        source: Which job board to scrape.
+                "protocol"   → theprotocol.it  (HTTP, no browser)
+                "justjoinit" → justjoin.it      (HTTP, no browser)
+    """
     config = settings.load_config()
 
     storage = SqliteStorage(settings.data_dir)
     rate_limiter = RateLimiter(
         daily_limit=limit or config.scraper.daily_limit,
-        delay=config.scraper.fetch_interval
+        delay=config.scraper.fetch_interval,
     )
 
     max_jobs = limit or config.scraper.daily_limit
+    excluded_companies: list[str] = config.requirements.get("excluded_companies", [])
 
-    if mock_mode:
-        
-        from job_scraper.scraper import MockJobBoard
-
-        job_board = MockJobBoard(browser=None)
-        return await _scrape_jobs(job_board, rate_limiter, storage, max_jobs)
-    else:
-        from job_scraper.scraper import Browser
-        from job_scraper.scraper.protocol_scraper import ProtocolScraper
-
-        async with Browser(headless=headless) as browser:
-            job_board = ProtocolScraper(
-                browser=browser,
-            )
-            return await _scrape_jobs(job_board, rate_limiter, storage, max_jobs)
+    async with scrapers[source](delay=config.scraper.fetch_interval, config=config.search[source]) as job_board:
+        return await _scrape_jobs(job_board, rate_limiter, storage, max_jobs, excluded_companies)
 
 
 async def filter_main(limit: int | None = None) -> int:
@@ -163,7 +151,7 @@ async def filter_main(limit: int | None = None) -> int:
 
     matched_count = 0
     rejected_count = 0
-    semaphore = asyncio.Semaphore(150)
+    semaphore = asyncio.Semaphore(90)
 
     async def filter_one(job_data: dict[str, Any], index: int) -> None:
         nonlocal matched_count, rejected_count
@@ -192,6 +180,7 @@ async def filter_main(limit: int | None = None) -> int:
             else:
                 await results.save_rejected_job(
                     url=job_data["url"],
+                    role=job_data.get("title", ""),
                     reason=filter_result.reason,
                     skillset_match_percent=filter_result.skillset_match_percent,
                 )
@@ -271,10 +260,10 @@ async def optimize_main(limit: int | None = None) -> int:
     return 0
 
 
-async def run_main(limit: int | None = None) -> int:
+async def run_main(limit: int | None = None, source: str = "protocol") -> int:
     """Combined mode: scrape first (closes browser), then filter. Never simultaneous."""
     logger.info("Phase 1: Scraping...")
-    result = await scrape_main(limit=limit)
+    result = await scrape_main(limit=limit, source=source)
     if result != 0:
         return result
 
@@ -293,8 +282,13 @@ def parse_args() -> argparse.Namespace:
     # scrape
     scrape_parser = subparsers.add_parser("scrape", help="Scrape jobs to SQLite (no LLM)")
     scrape_parser.add_argument("--limit", type=int, help="Max jobs to scrape")
-    scrape_parser.add_argument("--headless", action="store_true", default=None)
     scrape_parser.add_argument("--no-headless", dest="headless", action="store_false")
+    scrape_parser.add_argument(
+        "--source",
+        choices=["protocol", "justjoin"],
+        default="protocol",
+        help="Job board to scrape: 'protocol' (theprotocol.it, default) or 'justjoin' (justjoin.it)",
+    )
 
     # filter
     filter_parser = subparsers.add_parser("filter", help="Filter scraped jobs with LLM")
@@ -303,6 +297,12 @@ def parse_args() -> argparse.Namespace:
     # run (combined, sequential)
     run_parser = subparsers.add_parser("run", help="Scrape then filter (sequential)")
     run_parser.add_argument("--limit", type=int, help="Max jobs to process")
+    run_parser.add_argument(
+        "--source",
+        choices=["protocol", "justjoinit"],
+        default="protocol",
+        help="Job board to scrape: 'protocol' (theprotocol.it, default) or 'justjoinit' (justjoin.it)",
+    )
 
     # optimize — generate CV sections for already-matched jobs
     optimize_parser = subparsers.add_parser(
@@ -329,13 +329,16 @@ async def main(args: argparse.Namespace) -> int:
         logger.info("=" * 60)
 
         if args.command == "scrape":
-            return await scrape_main(limit=args.limit, headless=args.headless)
+            return await scrape_main(
+                limit=args.limit,
+                source=args.source,
+            )
         elif args.command == "filter":
             return await filter_main(limit=args.limit)
         elif args.command == "optimize":
             return await optimize_main(limit=args.limit)
         elif args.command == "run":
-            return await run_main(limit=args.limit)
+            return await run_main(limit=args.limit, source=args.source)
         elif args.command == "reprocess":
             storage = SqliteStorage(settings.data_dir)
             count = storage.reset_processed()

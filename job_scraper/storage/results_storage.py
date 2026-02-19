@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS matched_jobs (
 
 CREATE TABLE IF NOT EXISTS rejected_jobs (
     url                    TEXT PRIMARY KEY,
+    role                   TEXT,
     reason                 TEXT,
     skillset_match_percent INTEGER,
     rejected_at            TEXT
@@ -59,6 +60,9 @@ class ResultsStorage:
             for col in ("optimized_at", "applied_at"):
                 if col not in columns:
                     conn.execute(f"ALTER TABLE matched_jobs ADD COLUMN {col} TEXT")
+            rejected_columns = [row[1] for row in conn.execute("PRAGMA table_info(rejected_jobs)")]
+            if "role" not in rejected_columns:
+                conn.execute("ALTER TABLE rejected_jobs ADD COLUMN role TEXT")
 
     async def save_matched_job(
         self,
@@ -93,6 +97,7 @@ class ResultsStorage:
     async def save_rejected_job(
         self,
         url: str,
+        role: str = "",
         reason: str = "",
         skillset_match_percent: int = 0,
     ) -> None:
@@ -101,10 +106,10 @@ class ResultsStorage:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO rejected_jobs
-                  (url, reason, skillset_match_percent, rejected_at)
-                VALUES (?, ?, ?, ?)
+                  (url, role, reason, skillset_match_percent, rejected_at)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (url, reason, skillset_match_percent, datetime.now().isoformat()),
+                (url, role, reason, skillset_match_percent, datetime.now().isoformat()),
             )
         logger.debug(f"Saved rejected job: {url}")
 

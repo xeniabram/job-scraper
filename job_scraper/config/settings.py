@@ -1,9 +1,10 @@
 """Application settings and configuration."""
 
 from pathlib import Path
+from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,11 +24,20 @@ class CvOptimizationConfig(BaseModel):
 
 
 class Config(BaseModel):
-    search: dict
+    search: dict[str, list[dict[str, Any]]]
     requirements: dict
     scraper: ScraperConfig
     output: dict
     cv_optimization: CvOptimizationConfig | None = None
+
+    @field_validator("search", mode="before")
+    @classmethod
+    def listify_search_values(cls, v: Any) -> Any:
+        if isinstance(v, dict):
+            for key, value in v.items():
+                if isinstance(value, dict):
+                    v[key] = [value]
+        return v
 
 
 class Settings(BaseSettings):
