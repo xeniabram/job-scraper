@@ -29,4 +29,5 @@ config.yaml
 
 # Misc
 examples/
+scripts/
 .DS_Store
