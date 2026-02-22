@@ -320,6 +320,9 @@ def parse_args() -> argparse.Namespace:
         help="Review LLM-rejected jobs and label them for LLM tuning",
     )
 
+    # add — manually add a job to the filter queue via a GUI form
+    subparsers.add_parser("add", help="Open form to manually add a job to the filter queue")
+
     # reprocess — reset filtered_at so filter can run again on all jobs
     subparsers.add_parser("reprocess", help="Reset all filtered jobs so they can be re-filtered")
 
@@ -363,6 +366,11 @@ def cli() -> None:
         print("\nPlease specify a command: scrape, filter, optimize, review, or run")
         print("  Example: uv run job-scraper scrape --limit 20")
         sys.exit(1)
+
+    if args.command == "add":
+        from job_scraper.ui.add_job import run_add_job
+        run_add_job()
+        return
 
     if args.command == "review":
         if args.rejected:
