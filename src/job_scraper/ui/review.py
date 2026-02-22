@@ -46,12 +46,34 @@ def run_review() -> None:
     tk.Frame(root, height=1, bg="#cccccc").pack(fill="x", padx=12)
 
     # -- about me
-    tk.Label(root, text="ABOUT ME", font=("Helvetica", 10, "bold"), fg="gray").pack(anchor="w", padx=12, pady=(8, 2))
+    about_header = tk.Frame(root)
+    about_header.pack(fill="x", padx=12, pady=(8, 2))
+    tk.Label(about_header, text="ABOUT ME", font=("Helvetica", 10, "bold"), fg="gray").pack(side="left")
+
+    def copy_about() -> None:
+        text = about_box.get("1.0", tk.END).strip()
+        root.clipboard_clear()
+        root.clipboard_append(text)
+
+    tk.Button(about_header, text="Copy", font=("Helvetica", 9), relief="flat", bg="#e0e0e0",
+              activebackground="#c8c8c8", padx=6, pady=1, command=copy_about).pack(side="left", padx=(8, 0))
+
     about_box = scrolledtext.ScrolledText(root, wrap=tk.WORD, height=9, font=("Helvetica", 11), relief="flat", bg="#f7f7f7")
     about_box.pack(fill="x", padx=12)
 
     # -- keywords
-    tk.Label(root, text="KEYWORDS", font=("Helvetica", 10, "bold"), fg="gray").pack(anchor="w", padx=12, pady=(10, 2))
+    kw_header = tk.Frame(root)
+    kw_header.pack(fill="x", padx=12, pady=(10, 2))
+    tk.Label(kw_header, text="KEYWORDS", font=("Helvetica", 10, "bold"), fg="gray").pack(side="left")
+
+    def copy_keywords() -> None:
+        text = kw_box.get("1.0", tk.END).strip()
+        root.clipboard_clear()
+        root.clipboard_append(text)
+
+    tk.Button(kw_header, text="Copy", font=("Helvetica", 9), relief="flat", bg="#e0e0e0",
+              activebackground="#c8c8c8", padx=6, pady=1, command=copy_keywords).pack(side="left", padx=(8, 0))
+
     kw_box = scrolledtext.ScrolledText(root, wrap=tk.WORD, height=5, font=("Helvetica", 11), relief="flat", bg="#f7f7f7")
     kw_box.pack(fill="x", padx=12)
 

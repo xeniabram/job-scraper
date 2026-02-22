@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class ScraperConfig(BaseModel):
-    daily_limit: int
+    session_limit_per_board: int
     fetch_interval: int
 
 
@@ -27,8 +27,7 @@ class Config(BaseModel):
     search: dict[str, list[dict[str, Any]]]
     requirements: dict
     scraper: ScraperConfig
-    output: dict
-    cv_optimization: CvOptimizationConfig | None = None
+    cv_optimization: CvOptimizationConfig
 
     @field_validator("search", mode="before")
     @classmethod

@@ -83,7 +83,9 @@ class UrlCache:
     def _key(url: str) -> bytes:
         return hashlib.sha256(url.encode()).digest()
 
-    def __contains__(self, url: str) -> bool:
+    def __contains__(self, url: object) -> bool:
+        if not isinstance(url, str):
+            return False
         with dbm.open(self._db_path, "c") as db:
             return self._key(url) in db
 
@@ -136,23 +138,24 @@ class ResultsStorage:
             return
         with self._connect() as conn:
             conn.execute(
-                "INSERT OR IGNORE INTO jobs (url, title, company, description) VALUES (?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO jobs (url, title, company, description)"
+                " VALUES (?, ?, ?, ?)",
                 job_data.row,
             )
         self.url_cache.add(url)
         logger.info(f"Saved scraped job: {job_data.title or url}")
 
-    def load_pending_jobs(self) -> list[dict[str, Any]]:
+    def load_pending_jobs(self) -> list[JobData]:
         """Return jobs that have not been filtered yet."""
         with self._connect() as conn:
             rows = conn.execute("SELECT * FROM jobs WHERE filtered_at IS NULL").fetchall()
-        return [self._row_to_dict(r) for r in rows]
+        return [JobData(**self._row_to_dict(r)) for r in rows]
 
-    def load_all_jobs(self) -> list[dict[str, Any]]:
+    def load_all_jobs(self) -> list[JobData]:
         """Return all jobs regardless of filtered status."""
         with self._connect() as conn:
             rows = conn.execute("SELECT * FROM jobs").fetchall()
-        return [self._row_to_dict(r) for r in rows]
+        return [JobData(**self._row_to_dict(r)) for r in rows]
 
     def mark_processed(self, url: str) -> None:
         """Stamp filtered_at on a job."""
@@ -173,15 +176,6 @@ class ResultsStorage:
         with self._connect() as conn:
             row = conn.execute("SELECT COUNT(*) FROM jobs WHERE filtered_at IS NULL").fetchone()
         return row[0]
-
-    def save_failed_job(self, url: str) -> None:
-        """Record a URL that could not be fetched."""
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT OR IGNORE INTO failed_jobs (url, failed_at) VALUES (?, ?)",
-                (url, datetime.now().isoformat()),
-            )
-        logger.warning(f"Recorded failed job URL: {url}")
 
     def get_scraped_details(self, url: str) -> dict[str, Any]:
         """Fetch scraped details for a URL from the jobs table."""
@@ -247,6 +241,71 @@ class ResultsStorage:
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 (url, role, reason, skillset_match_percent, datetime.now().isoformat()),
+            )
+        logger.debug(f"Saved rejected job: {url}")
+
+    async def save_matched_and_mark_processed(
+        self,
+        url: str,
+        title: str = "",
+        company: str = "",
+        skillset_match_percent: int = 0,
+        cv: dict[str, str] | None = None,
+    ) -> None:
+        """Insert matched job and stamp filtered_at in one transaction."""
+        cv = cv or {}
+        now = datetime.now().isoformat()
+        with self._connect() as conn:
+            if company and title:
+                count = conn.execute(
+                    "SELECT COUNT(*) FROM matched_jobs WHERE LOWER(company) = LOWER(?) AND LOWER(title) = LOWER(?)",
+                    (company, title),
+                ).fetchone()[0]
+                if count:
+                    logger.warning(
+                        f"Duplicate detected (company+title match), skipping: '{company}' / '{title}' ({url})"
+                    )
+                    conn.execute(
+                        "UPDATE jobs SET filtered_at = ? WHERE url = ?",
+                        (now, url),
+                    )
+                    return
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO matched_jobs
+                  (url, title, company, skillset_match_percent, matched_at, cv_about_me, cv_keywords)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (url, title, company, skillset_match_percent, now,
+                 cv.get("about_me", ""), cv.get("keywords", "")),
+            )
+            conn.execute(
+                "UPDATE jobs SET filtered_at = ? WHERE url = ?",
+                (now, url),
+            )
+        logger.info(f"Saved matched job: {title or url}")
+
+    async def save_rejected_and_mark_processed(
+        self,
+        url: str,
+        role: str = "",
+        reason: str = "",
+        skillset_match_percent: int = 0,
+    ) -> None:
+        """Insert rejected job and stamp filtered_at in one transaction."""
+        now = datetime.now().isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO rejected_jobs
+                  (url, role, reason, skillset_match_percent, rejected_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (url, role, reason, skillset_match_percent, now),
+            )
+            conn.execute(
+                "UPDATE jobs SET filtered_at = ? WHERE url = ?",
+                (now, url),
             )
         logger.debug(f"Saved rejected job: {url}")
 

@@ -6,9 +6,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from langdetect import detect
 from loguru import logger
 from openai import AsyncOpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
+
+from job_scraper.config.settings import CvOptimizationConfig, CvSection
+from job_scraper.schema import JobData
 
 
 class JobMatch(BaseModel):
@@ -107,7 +111,7 @@ INSTRUCTIONS:
 Return ONLY valid JSON."""
     
 
-    async def filter_job(self, job_data: dict[str, Any]) -> JobMatch:
+    async def filter_job(self, job_data: JobData) -> JobMatch:
         """Filter a job posting using the LLM.
 
         Args:
@@ -116,14 +120,14 @@ Return ONLY valid JSON."""
         Returns:
             Dictionary with match result, skillset %, reason, etc.
         """
-        logger.debug(f"Filtering job: {job_data.get('title', 'Unknown')}")
+        logger.debug(f"Filtering job: {job_data.title}")
 
         t0 = time.perf_counter()
         response = await self.client.responses.parse(
             model=self.model,
             input=[
                 {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": json.dumps(job_data)},
+                {"role": "user", "content": job_data.model_dump_json()},
             ],
             text_format=JobMatch,
         )
@@ -133,8 +137,8 @@ Return ONLY valid JSON."""
             usage = getattr(response, "usage", None)
             entry = {
                 "ts": datetime.now(UTC).isoformat(),
-                "job": job_data.get("title", ""),
-                "company": job_data.get("company", ""),
+                "job": job_data.title,
+                "company": job_data.company,
                 "model": self.model,
                 "duration_s": round(duration, 3),
                 "input_tokens": getattr(usage, "input_tokens", None),
@@ -154,7 +158,7 @@ Return ONLY valid JSON."""
         result = response.output_parsed
 
         logger.info(
-            f"Job '{job_data.get('title', 'Unknown')}': "
+            f"Job '{job_data.title}': "
             f"{'MATCH' if result.match else 'REJECT'} "
             f"(critical: {result.critical_reqs} | missing: {result.missing} | {result.reason})"
         )
@@ -162,9 +166,9 @@ Return ONLY valid JSON."""
 
     async def optimize_cv(
         self,
-        job_data: dict[str, Any],
-        cv_config: Any,  # CvOptimizationConfig
-    ) -> CvOptimized:
+        job_data: JobData,
+        cv_config: CvOptimizationConfig,  # CvOptimizationConfig
+    ) -> CvOptimized | None:
         """Rewrite CV sections to maximize keyword overlap with a specific job.
 
         Detects the job's language and selects the matching base CV section.
@@ -177,11 +181,11 @@ Return ONLY valid JSON."""
             CvOptimized with rewritten about_me and keywords in the job's language.
         """
         # Detect language: Polish diacritics in requirements/title → Polish
-
-        system_prompt = """You are a CV optimization engine. You rewrite CV sections to maximize
+        lang = detect(str(job_data.description))
+        system_prompt = f"""You are a CV optimization engine. You rewrite CV sections to maximize
             keyword overlap with a specific job posting while staying strictly truthful
             (do not invent skills or experiences not present in the base text).
-            Determine the language of the job post and write your output in the same language (EN -> EN, PL -> PL)
+            The job post is in {lang} language. Write your output only in {lang} language.
             Rules:
             1. Reorder and rephrase sentences so the most relevant technologies and
             responsibilities appear first.
@@ -193,27 +197,28 @@ Return ONLY valid JSON."""
             5. Append any newly incorporated technical keywords to the keywords string
             (comma-separated, no duplicates).
             Return ONLY valid JSON."""
+        
+        dictadapter = TypeAdapter(dict[str, JobData | CvSection])
 
         payload = {
             "job": job_data,
-            "base_cv": {
-                "about_me": cv_config.about_me,
-                "keywords": cv_config.keywords,
-            },
+            "base_cv": getattr(cv_config, lang),
         }
 
+
+        payload_json_string = str(dictadapter.dump_json(payload))
         response = await self.client.responses.parse(
             model=self.model,
             input=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": json.dumps(payload)},
+                {"role": "user", "content": payload_json_string},
             ],
             text_format=CvOptimized,
         )
 
         if response.output_parsed is None:
-            logger.warning("Could not parse CV optimization response, returning base CV")
-            return CvOptimized(about_me=cv_config.about_me, keywords=cv_config.keywords)
+            logger.warning("Could not parse CV optimization response — skipping, optimized_at will not be stamped")
+            return None
 
-        logger.debug(f"CV optimized for: {job_data.get('title', 'Unknown')}")
+        logger.debug(f"CV optimized for: {job_data.title}")
         return response.output_parsed

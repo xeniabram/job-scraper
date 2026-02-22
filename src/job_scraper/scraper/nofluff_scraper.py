@@ -1,17 +1,14 @@
-import asyncio
 from collections.abc import Iterable
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from bs4 import BeautifulSoup
-from curl_cffi.requests import AsyncSession
 from loguru import logger
-from pydantic import BaseModel, PlainSerializer, TypeAdapter
+from pydantic import Field, PlainSerializer
 
-from job_scraper.exceptions import GetJobException
 from job_scraper.schema import JobData
-from job_scraper.storage import UrlCache
+from job_scraper.scraper.base import BaseParams, BaseScraper
 
-BASE_URL = "https://nofluffjobs.com/pl/"
+BASE_URL = "https://nofluffjobs.com"
 
 def serialize_joined(input: set[str] | list[str] | str) -> str:
     if not input:
@@ -43,7 +40,7 @@ JobLanguageLiteral = set[Literal["pl", "en"]]
 
 # ── Params model ──────────────────────────────────────────────────────────────
 
-class Params(BaseModel):
+class Params(BaseParams):
     requirement: Annotated[
         TechLiteral | None,
         PlainSerializer(serialize_joined, when_used="unless-none"),
@@ -66,7 +63,7 @@ class Params(BaseModel):
 
     city: Annotated[
         list[Literal["praca-zdalna", "hybrid", "fieldwork"] | str],
-         PlainSerializer(serialize_joined)] = ["praca-zdalna"]
+        PlainSerializer(serialize_joined)] = Field(default_factory=lambda: ["praca-zdalna"])
 
 
     @property
@@ -76,98 +73,30 @@ class Params(BaseModel):
         params = " ".join(f"{k}={v}" for k, v in data.items() if v is not None)
         return f"criteria={urllib.parse.quote(params, safe=",")}"
 
-    def url(self, base: str) -> str:
+    def build_listing_url(self) -> str:
         if p := self.query_params:
-            return f"{base}?{p}"
-        return base
-
-BASE_URL = "https://nofluffjobs.com"
-_IMPERSONATE = "chrome120"
-
-ParamList = TypeAdapter(list[Params])
+            return f"{BASE_URL}/pl?{p}"
+        return BASE_URL
+    
 
 
-
-class NoFluffScraper:
+class NoFluffScraper(BaseScraper):
     """Scraper for theprotocol.it using HTTP requests + HTML parsing."""
+    _param_type = Params
 
-    def __init__(self, delay: float, config: list[dict[str, Any]]):
-        self._delay = delay
-        self._session: AsyncSession | None = None
-        param_list = ParamList.validate_python(config)
-        self._search_urls = [param.url(BASE_URL) for param in param_list]
-
-    async def __aenter__(self) -> "NoFluffScraper":
-        self._session = AsyncSession(impersonate=_IMPERSONATE)
-        return self
-
-    async def __aexit__(self, *_: Any) -> None:
-        if self._session:
-            await self._session.close()
-            self._session = None
-
-    async def _get(self, url: str) -> BeautifulSoup:
-        if not self._session:
-            raise RuntimeError("Use 'async with ProtocolScraper() as s:' context manager.")
-        resp = await self._session.get(
-            url,
-            headers={"Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8"},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return BeautifulSoup(resp.text, "html.parser")
-
-    async def get_job_links(
-        self,
-        max_jobs: int,
-        url_cache: UrlCache,
+    @staticmethod
+    def _extract_job_urls(
+        source: str
     ) -> list[str]:
-        """Paginate all search URLs and return up to max_jobs unseen job links."""
-        unseen: list[str] = []
-        seen: set[str] = set()
+        soup = BeautifulSoup(source, "html.parser")
+        return [
+            BASE_URL + str(card["href"])
+            for card in soup.select("a.posting-list-item")
+        ]
 
-        for search_url in self._search_urls:
-            logger.info(f"Fetching url {search_url}...")
-            try:
-                soup = await self._get(search_url)
-            except Exception as e:
-                logger.warning(f"Fetch error ({search_url}): {e}")
-                continue
-
-            cards = soup.select("a.posting-list-item")
-            if not cards:
-                break
-
-            page_new = 0
-            page_all = 0
-            for card in cards:
-                href = str(card.get("href") or "")
-                if not href:
-                    continue
-                page_all += 1
-                full_url = (BASE_URL + href) if not href.startswith("http") else href
-                full_url = full_url.split("?")[0]
-                if full_url in seen or full_url in url_cache:
-                    continue
-                seen.add(full_url)
-                unseen.append(full_url)
-                page_new += 1
-                if len(unseen) >= max_jobs:
-                    logger.info(f"Collected {len(unseen)} job links. Total links on the page: {page_all}")
-                    return unseen
-
-            await asyncio.sleep(self._delay)
-
-        logger.info(f"Collected {len(unseen)} job links")
-        return unseen
-
-    async def view_job(self, job_url: str) -> JobData:
+    def _extract_job_data(self, job_url: str, source: str) -> JobData:
         """Fetch a job detail page and extract structured data."""
-        try:
-            soup = await self._get(job_url)
-        except Exception as e:
-            logger.error(f"Failed to fetch {job_url}: {e}")
-            raise GetJobException
+        soup = BeautifulSoup(source, "html.parser")
 
         title_tag = soup.select_one("h1")
         title = title_tag.get_text(strip=True) if title_tag else ""
@@ -214,11 +143,11 @@ class NoFluffScraper:
             company=company,
             description= {
                 "location": location,
-            "seniority": seniority,
-            "work_mode": work_mode,
-            "technologies": technologies,
-            "technologies_optional": technologies_optional,
-            "requirements": requirements,
-            "responsibilities": responsibilities,
-            }
+                "seniority": seniority,
+                "work_mode": work_mode,
+                "technologies": technologies,
+                "technologies_optional": technologies_optional,
+                "requirements": requirements,
+                "responsibilities": responsibilities,
+                }
         )

@@ -4,20 +4,18 @@ No browser required. Uses curl_cffi to bypass Cloudflare and BeautifulSoup
 to parse HTML via stable data-test attributes.
 """
 
-import asyncio
-import itertools
 from collections.abc import Callable, Iterable
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from bs4 import BeautifulSoup
-from curl_cffi.requests import AsyncSession
 from loguru import logger
-from pydantic import BaseModel, PlainSerializer, TypeAdapter, model_validator
+from pydantic import PlainSerializer, model_validator
 
-from job_scraper.exceptions import GetJobException
 from job_scraper.schema import JobData
-from job_scraper.storage import UrlCache
+from job_scraper.scraper.base import BaseParams, BaseScraper
+from job_scraper.utils import text
 
+BASE_URL = "https://theprotocol.it"
 
 def serialize_with_suffix(suffix: str) -> Callable[[set[str] | str], str]:
     def inner(input: set[str] | str) -> str:
@@ -37,7 +35,7 @@ type TechLiteral = set[Literal[
 ]]
 
 
-class Params(BaseModel):
+class Params(BaseParams):
     technologies_must: Annotated[TechLiteral | None, PlainSerializer(serialize_with_suffix(";t"), when_used="unless-none")] = None
     technologies_nice: Annotated[TechLiteral | None, PlainSerializer(serialize_with_suffix(";nt"), when_used="unless-none")] = None
     technologies_not: TechLiteral | None = None
@@ -99,129 +97,44 @@ class Params(BaseModel):
     def segments(self) -> str:
         data = self.model_dump(exclude_none=True, exclude={"project_description_present", "technologies_not"})
         return "/".join(data.values())
-
-ParamList = TypeAdapter(list[Params])
-
-BASE_URL = "https://theprotocol.it"
-_IMPERSONATE = "chrome120"
-
-
-class ProtocolScraper:
-    """Scraper for theprotocol.it using HTTP requests + HTML parsing."""
-
-    def __init__(self, delay: float, config: list[dict[str, Any]]):
-        self._delay = delay
-        self._session: AsyncSession | None = None
-        param_list = ParamList.validate_python(config)
-        self._search_urls = [self._build_listing_url(param) for param in param_list]
-
-    async def __aenter__(self) -> "ProtocolScraper":
-        self._session = AsyncSession(impersonate=_IMPERSONATE)
-        return self
-
-    async def __aexit__(self, *_: Any) -> None:
-        if self._session:
-            await self._session.close()
-            self._session = None
-
-
-    @staticmethod
-    def _build_listing_url(config: Params) -> str:
+    
+    def build_listing_url(self) -> str:
         """Build a theprotocol.it filter URL from config dict."""
-        query = config.query_params
-        return BASE_URL + "/filtry/" + config.segments + (f"?{query}" if query else "")
+        query = self.query_params
+        return BASE_URL + "/filtry/" + self.segments + (f"?{query}" if query else "")
 
 
-    async def _get(self, url: str) -> BeautifulSoup:
-        if not self._session:
-            raise RuntimeError("Use 'async with ProtocolScraper() as s:' context manager.")
-        resp = await self._session.get(
-            url,
-            headers={"Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8"},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return BeautifulSoup(resp.text, "html.parser")
+class ProtocolScraper(BaseScraper):
+    """Scraper for theprotocol.it using HTTP requests + HTML parsing."""
+    _param_type = Params
+    
+    @staticmethod
+    def _extract_job_urls(source: str) -> list[str]:
+        soup = BeautifulSoup(source, "html.parser")
+        return [
+            (BASE_URL + str(card["href"])).split("?")[0]
+            for card in soup.select('a[data-test="list-item-offer"]')
+        ]
 
-    async def get_job_links(
-        self,
-        max_jobs: int,
-        url_cache: UrlCache,
-    ) -> list[str]:
-        """Paginate all search URLs and return up to max_jobs unseen job links."""
-        unseen: list[str] = []
-        seen: set[str] = set()
-
-        for search_url in self._search_urls:
-            sep = "&" if "?" in search_url else "?"
-            for page_num in itertools.count(1):
-                suffix = f"{sep}pageNumber={page_num}" if page_num > 1 else ""
-                try:
-                    soup = await self._get(f"{search_url}{suffix}")
-                except Exception as e:
-                    logger.warning(f"Fetch error ({search_url} p{page_num}): {e}")
-                    break
-
-                cards = soup.select('a[data-test="list-item-offer"]')
-                if not cards:
-                    break
-
-                page_new = 0
-                page_all = 0
-                for card in cards:
-                    href = str(card.get("href") or "")
-                    if not href:
-                        continue
-                    page_all += 1
-                    full_url = (BASE_URL + href) if not href.startswith("http") else href
-                    full_url = full_url.split("?")[0]
-                    if full_url in seen or full_url in url_cache:
-                        continue
-                    seen.add(full_url)
-                    unseen.append(full_url)
-                    page_new += 1
-                    if len(unseen) >= max_jobs:
-                        logger.info(f"Collected {len(unseen)} job links")
-                        return unseen
-                logger.info(f"Page {page_num}: {page_new} new | total new: {len(unseen)} | total on page: {page_all}")
-
-                await asyncio.sleep(self._delay)
-
-        logger.info(f"Collected {len(unseen)} job links")
-        return unseen
-
-    async def view_job(self, job_url: str) -> JobData:
+    def _extract_job_data(self, job_url: str, source: str) -> JobData:
         """Fetch a job detail page and extract structured data."""
-        try:
-            soup = await self._get(job_url)
-        except Exception as e:
-            logger.error(f"Failed to fetch {job_url}: {e}")
-            raise GetJobException
+        soup = BeautifulSoup(source, "html.parser")
 
-        def text(selector: str) -> str:
-            el = soup.select_one(selector)
-            return el.get_text(strip=True) if el else ""
-
-        title = text('[data-test="text-offerTitle"]')
-        company = text('[data-test="text-offerEmployer"]')
-        location = text('[data-test="text-primaryLocation"]')
-        seniority = text('[data-test="content-positionLevels"]')
-        work_mode = text('[data-test="content-workModes"]')
+        title = text('[data-test="text-offerTitle"]', soup)
+        company = text('[data-test="text-offerEmployer"]', soup)
+        location = text('[data-test="text-primaryLocation"]', soup)
+        seniority = text('[data-test="content-positionLevels"]', soup)
+        work_mode = text('[data-test="content-workModes"]', soup)
 
         # Contracts — one block per contract type offered
         contracts: list[dict[str, str]] = []
         for block in soup.select('[data-test="section-contract"]'):
-
-            def _t(sel: str, parent: Any = block) -> str:
-                el = parent.select_one(sel)
-                return el.get_text(strip=True) if el else ""
-
             contracts.append(
                 {
-                    "salary": _t('[data-test="text-contractSalary"]'),
-                    "units": _t('[data-test="text-contractUnits"]'),
-                    "period": _t('[data-test="text-contractTimeUnits"]'),
-                    "type": _t('[data-test="text-contractName"]'),
+                    "salary": text('[data-test="text-contractSalary"]', block),
+                    "units": text('[data-test="text-contractUnits"]', block),
+                    "period": text('[data-test="text-contractTimeUnits"]', block),
+                    "type": text('[data-test="text-contractName"]', block),
                 }
             )
 
