@@ -1,0 +1,6 @@
+{
+    "title": "very cool job",
+    "company": "coca coca",
+    "description": {"key": "this has to be a dict, you can store structured data here. Example keys: salary, location, skills etc" },
+    "url": "points to job posting where you can apply"
+}

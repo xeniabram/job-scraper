@@ -18,8 +18,7 @@ from job_scraper.config import settings
 from job_scraper.exceptions import GetJobException, GetJobListingException, SourceParsingError
 from job_scraper.llm import JobFilter
 from job_scraper.schema import JobData
-from job_scraper.scraper import scrapers
-from job_scraper.scraper.base import BaseScraper
+from job_scraper.scraper import Scraper, scrapers
 from job_scraper.storage import ResultsStorage
 from job_scraper.utils import RateLimiter, setup_logger
 
@@ -40,7 +39,7 @@ def _is_excluded_company(company: str, excluded: list[str]) -> bool:
 
 
 async def _scrape_jobs(
-    job_board: BaseScraper,
+    job_board: Scraper,
     rate_limiter: RateLimiter,
     storage: ResultsStorage,
     max_jobs: int,
@@ -53,20 +52,13 @@ async def _scrape_jobs(
         GetJobException
         SourceParsingError
         """
-    new_jobs = await job_board.get_job_links(max_jobs=max_jobs, url_cache=storage.url_cache)
-    logger.info(f"Found {len(new_jobs)} new jobs to scrape")
-
-    if not new_jobs:
-        logger.info("No new jobs to scrape")
-        return
-
     _log_resources()
 
     scraped_count = 0
     excluded_count = 0
-    for i, job_url in enumerate(new_jobs, 1):
-        logger.info(f"\n[{i}/{len(new_jobs)}] Scraping job...")
-
+    async for job_url in job_board.get_job_links(max_jobs=max_jobs, url_cache=storage.url_cache):
+        logger.info(f"\nScraping job at {job_url.split("?")[0]}")
+        
         await rate_limiter.wait()
         job_data = await job_board.view_job(job_url)
 
@@ -263,14 +255,6 @@ async def optimize_main(limit: int | None = None) -> None:
     logger.info(f"Optimized: {done} | Skipped (no scraped data): {skipped}")
 
 
-async def run_main(sources: list[str], limit: int | None = None, ) -> None:
-    """Combined mode: scrape first (closes browser), then filter. Never simultaneous."""
-    logger.info("Phase 1: Scraping...")
-    await scrape_main(limit=limit, sources=sources)
-    logger.info("\nPhase 2: Filtering...")
-    await filter_main(limit=limit)
-
-
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(
@@ -285,7 +269,7 @@ def parse_args() -> argparse.Namespace:
     scrape_parser.add_argument("--no-headless", dest="headless", action="store_false")
     scrape_parser.add_argument(
         "--sources",
-        choices=["protocol", "justjoin", "nofluff"],
+        choices=["protocol", "justjoin", "nofluff", "local"],
         nargs="*",
         default=AVAILABLE_SOURCES,
         help="Job board(s) to scrape. Example: --sources protocol justjoin",
@@ -295,15 +279,6 @@ def parse_args() -> argparse.Namespace:
     filter_parser = subparsers.add_parser("filter", help="Filter scraped jobs with LLM")
     filter_parser.add_argument("--limit", type=int, help="Max jobs to filter this run")
 
-    # run (combined, sequential)
-    run_parser = subparsers.add_parser("run", help="Scrape then filter (sequential)")
-    run_parser.add_argument("--limit", type=int, help="Max jobs to process")
-    run_parser.add_argument(
-        "--source",
-        choices=["protocol", "justjoinit"],
-        default="protocol",
-        help="Job board to scrape: 'protocol' (theprotocol.it, default) or 'justjoinit' (justjoin.it)",
-    )
 
     # optimize — generate CV sections for already-matched jobs
     optimize_parser = subparsers.add_parser(
@@ -347,8 +322,6 @@ async def main(args: argparse.Namespace) -> None:
             await filter_main(limit=args.limit)
         case "optimize":
             await optimize_main(limit=args.limit)
-        case "run":
-            await run_main(limit=args.limit, sources=args.sources)
         case "reprocess":
             count = ResultsStorage(settings.data_dir).reset_processed()
             logger.info(f"Reset {count} jobs — run 'filter' to reprocess them")

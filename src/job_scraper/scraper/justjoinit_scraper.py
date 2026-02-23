@@ -4,6 +4,7 @@ Robots.txt compliance (https://justjoin.it/robots.txt):
   Disallow: /api/          ← this scraper does NOT touch any /api/ path
 """
 import json
+from collections.abc import Generator
 from typing import Annotated, Any, Literal
 
 from bs4 import BeautifulSoup
@@ -80,11 +81,12 @@ class JustJoinItScraper(BaseScraper):
 
 
     @staticmethod
-    def _extract_job_urls(source: str) -> list[str]:
+    def _extract_job_urls(source: str) -> Generator[str]:
         """Extract job URLs from a class collection-card"""
         soup = BeautifulSoup(source, "html.parser")
-        return [BASE_URL + str(a["href"]).split("?")[0] for a in soup.select("a.offer-card")]
-    
+        for a in soup.select("a.offer-card"):
+            yield BASE_URL + str(a["href"]).split("?")[0]
+ 
     def _job_from_json_ld(
         self, job_url: str, ld: dict[str, Any]
         ) -> JobData:

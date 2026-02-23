@@ -4,7 +4,7 @@ Robots.txt compliance (https://justjoin.it/robots.txt):
   Disallow: /api/          ← this scraper does NOT touch any /api/ path
 """
 from abc import ABC, abstractmethod
-from collections.abc import Container
+from collections.abc import AsyncGenerator, Container, Generator
 from types import MappingProxyType
 from typing import Any, Self
 
@@ -53,7 +53,7 @@ class BaseScraper(ABC):
         )
         return self
 
-    async def __aexit__(self, *_: Any) -> None:
+    async def __aexit__(self, exc_type: Any, *_: Any) -> None:
         if self._client:
             await self._client.aclose()
             self._client = None
@@ -68,7 +68,7 @@ class BaseScraper(ABC):
     
     @staticmethod
     @abstractmethod
-    def _extract_job_urls(source: str) -> list[str]:
+    def _extract_job_urls(source: str) -> Generator[str]:
         ...
 
     @abstractmethod
@@ -79,13 +79,12 @@ class BaseScraper(ABC):
         """
         ...
     
-    async def get_job_links(self, max_jobs: int, url_cache: Container) -> list[str]:
+    async def get_job_links(self, max_jobs: int, url_cache: Container) -> AsyncGenerator[str]:
         """Returns found job links as list.
         Raises: 
             RuntimeError if not used as context manager
             GetJobListingException if response status != 200 or no data was scraped (check selectors)
             """
-        result = list()
         for listing_url in self._listing_urls:
             logger.info(f"fetching for {listing_url}...")
             try:
@@ -94,14 +93,14 @@ class BaseScraper(ABC):
                 raise GetJobListingException("was not able to fetch job listing page") from e
             if listing_page_source is None:
                 raise GetJobListingException("unexpected None fetch result")
-            urls = self._extract_job_urls(listing_page_source)
             new_jobs = 0
-            for url in urls:
-                if len(result) < max_jobs and url not in url_cache:
-                    result.append(url)
+            total_jobs = 0
+            for url in self._extract_job_urls(listing_page_source):
+                total_jobs += 1
+                if new_jobs < max_jobs and url not in url_cache:
+                    yield url
                     new_jobs += 1
-            logger.info(f"New jobs found: {new_jobs} | total jobs found: {len(urls)}")
-        return result
+            logger.info(f"New jobs found: {new_jobs} | total jobs found: {total_jobs}")
         
     async def view_job(self, job_url: str) -> JobData:
         """Fetch a job-offer page and return a normalised job dict.

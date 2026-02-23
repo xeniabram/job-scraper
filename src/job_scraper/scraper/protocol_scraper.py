@@ -4,7 +4,7 @@ No browser required. Uses curl_cffi to bypass Cloudflare and BeautifulSoup
 to parse HTML via stable data-test attributes.
 """
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Generator, Iterable
 from typing import Annotated, Literal
 
 from bs4 import BeautifulSoup
@@ -109,12 +109,10 @@ class ProtocolScraper(BaseScraper):
     _param_type = Params
     
     @staticmethod
-    def _extract_job_urls(source: str) -> list[str]:
+    def _extract_job_urls(source: str) -> Generator[str]:
         soup = BeautifulSoup(source, "html.parser")
-        return [
-            (BASE_URL + str(card["href"])).split("?")[0]
-            for card in soup.select('a[data-test="list-item-offer"]')
-        ]
+        for card in soup.select('a[data-test="list-item-offer"]'):
+            yield (BASE_URL + str(card["href"])).split("?")[0]
 
     def _extract_job_data(self, job_url: str, source: str) -> JobData:
         """Fetch a job detail page and extract structured data."""

@@ -64,6 +64,9 @@ search:
     with_salary: "yes"
     #  supported: yes | null (leave blank or remove key)
 
+  local:
+    - path: "path to your directory" # you can specify multiple directories
+    
   # Job Filtering Requirements (for LLM)
 requirements:
   # Companies to exclude (case-insensitive partial matching)

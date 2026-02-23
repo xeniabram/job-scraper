@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Generator, Iterable
 from typing import Annotated, Literal
 
 from bs4 import BeautifulSoup
@@ -87,12 +87,10 @@ class NoFluffScraper(BaseScraper):
     @staticmethod
     def _extract_job_urls(
         source: str
-    ) -> list[str]:
+    ) -> Generator[str]:
         soup = BeautifulSoup(source, "html.parser")
-        return [
-            BASE_URL + str(card["href"])
-            for card in soup.select("a.posting-list-item")
-        ]
+        for card in soup.select("a.posting-list-item"):
+            yield BASE_URL + str(card["href"])
 
     def _extract_job_data(self, job_url: str, source: str) -> JobData:
         """Fetch a job detail page and extract structured data."""
