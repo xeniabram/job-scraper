@@ -46,4 +46,11 @@ def setup_logger(log_dir: Path = Path("logs"), log_level: str = "INFO") -> None:
         retention="90 days",
     )
 
+    logger.add(
+    sys.stdout,
+    format="{message}",
+    level=log_level,
+    colorize=False,
+)
+
     logger.info("Logger initialized")
