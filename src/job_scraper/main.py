@@ -12,6 +12,7 @@ import os
 import sys
 from datetime import datetime
 
+from openai import NoneType
 import psutil
 from loguru import logger
 
@@ -19,11 +20,9 @@ from job_scraper.config import settings
 from job_scraper.exceptions import GetJobException, GetJobListingException, SourceParsingError
 from job_scraper.llm import JobFilter
 from job_scraper.schema import JobData
-from job_scraper.scraper import Scraper, scrapers
+from job_scraper.scraper import AVAILABLE_SOURCES, Scraper, scrapers
 from job_scraper.storage import ResultsStorage
 from job_scraper.utils import RateLimiter, setup_logger
-
-AVAILABLE_SOURCES = list(scrapers.keys())
 
 def _log_resources() -> None:
     """Log current process CPU and memory usage."""
@@ -59,7 +58,7 @@ async def _scrape_jobs(
     excluded_count = 0
     encountered_blacklist_companies = []
     async for job_url in job_board.get_job_links(max_jobs=max_jobs, url_cache=storage.url_cache):
-        logger.info(f"\nScraping job at {job_url.split("?")[0]}")
+        logger.debug(f"\nScraping job at {job_url.split("?")[0]}")
         
         await rate_limiter.wait()
         job_data = await job_board.view_job(job_url)
@@ -77,17 +76,6 @@ async def _scrape_jobs(
         if scraped_count % 5 == 0:
             _log_resources()
 
-    # Summary
-    pending = storage.pending_count()
-    logger.info("\n" + "=" * 10)
-    logger.info("Scraping Complete")
-    logger.info("=" * 10)
-    logger.info(
-        f"Jobs scraped this session: {scraped_count} (skipped {excluded_count} excluded companies)"
-    )
-    logger.info(f"Pending in queue: {pending}")
-    logger.info(f"Total URLs seen (cache): {len(storage.url_cache)}")
-
     return  (scraped_count, excluded_count, encountered_blacklist_companies)
 
 
@@ -95,7 +83,7 @@ async def _scrape_jobs(
 async def scrape_main(
     limit: int | None = None,
     sources: list[str] = AVAILABLE_SOURCES,
-) -> str:
+) -> None:
     """Scrape-only phase: extract jobs, save to SQLite. No LLM.
 
     Args:
@@ -129,14 +117,17 @@ async def scrape_main(
                 encountered_companies.extend(ec)
             except (GetJobListingException, GetJobException, SourceParsingError) as e:
                 logger.error(f"Failed scraping source {source} due to: {e}")
-    summary =  f"Scraped {scraped} new jobs, excluded {excluded} due to company blacklist."
+
+    pending = storage.pending_count()
+    logger.info("\n" + "=" * 10)
+    logger.info("Scraping Complete")
+    logger.info(f"Pending in queue: {pending}")
+    logger.info(f"Total URLs seen (cache): {len(storage.url_cache)}")
     if excluded:
-        summary += f"Encountered blacklisted companies were {",".join(encountered_companies)}"
-
-    return summary
+        logger.info(f"Encountered blacklisted companies were {",".join(encountered_companies)}")
 
 
-async def filter_main(limit: int | None = None) -> str:
+async def filter_main(limit: int | None = None) -> None:
     """Filter-only phase: read SQLite queue, send to LLM (up to 150 concurrent), remove from queue. No browser."""
     config = settings.load_config()
 
@@ -153,7 +144,7 @@ async def filter_main(limit: int | None = None) -> str:
 
     if not pending_jobs:
         logger.info("No jobs to filter. Run 'scrape' first.")
-        return "No jobs were filtered"
+        return
 
     if limit:
         pending_jobs = pending_jobs[:limit]
@@ -209,23 +200,20 @@ async def filter_main(limit: int | None = None) -> str:
     logger.info(f"This session: {matched_count} matched, {rejected_count} rejected")
     logger.info(f"Remaining in queue: {remaining}")
 
-    return f"Filter session: {matched_count} matched, {rejected_count} rejected."
 
-
-async def optimize_main(limit: int | None = None) -> str:
+async def optimize_main(limit: int | None = None) -> None:
     """Optimize CV sections for already-matched jobs. Reads results.db, writes back cv_about_me/cv_keywords."""
     config = settings.load_config()
 
     if not config.cv_optimization:
         logger.error("No cv_optimization section in config.yaml — nothing to do.")
-        return "No cv_optimization section in config.yaml — nothing to do."
-
+        return
     results = ResultsStorage(settings.data_dir)
 
     urls = results.load_unoptimized_matched_urls()
     if not urls:
         logger.info("All matched jobs are already optimized.")
-        return "All matched jobs are already optimized."
+        return
 
     if limit:
         urls = urls[:limit]
@@ -269,7 +257,6 @@ async def optimize_main(limit: int | None = None) -> str:
     logger.info("Optimization Complete")
     logger.info("=" * 10)
     logger.info(f"Optimized: {done} | Skipped (no scraped data): {skipped}")
-    return f"Optimized: {done} | Skipped: {skipped}."
 
 async def run_main():
     logger.remove()
@@ -344,10 +331,6 @@ def parse_args() -> argparse.Namespace:
 async def main(args: argparse.Namespace) -> None:
     """Main async entry point."""
     setup_logger(settings.logs_dir)
-
-    logger.info("=" * 10)
-    logger.info(f"Job Scraper — {args.command}")
-    logger.info("=" * 10)
 
     match args.command:
         case "scrape":

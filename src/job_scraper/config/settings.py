@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     openai_model: str = Field(default="gpt-4o-mini", description="OpenAI model to use")
 
     # Paths
+    saved_jobs_dir: Path
     config_file: Path = Field(default=Path("config.yaml"), description="Path to config file")
     data_dir: Path = Field(default=Path("data"), description="Directory for output data")
     logs_dir: Path = Field(default=Path("logs"), description="Directory for log files")

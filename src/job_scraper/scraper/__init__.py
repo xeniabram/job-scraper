@@ -27,3 +27,4 @@ scrapers: dict[str, ScraperClass] = {
     "protocol": ProtocolScraper,
     "nofluff": NoFluffScraper
 }
+AVAILABLE_SOURCES = list(scrapers.keys())

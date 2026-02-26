@@ -337,6 +337,14 @@ class ResultsStorage:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def load_unapplied_matched_count(self) -> int:
+        """Return matched jobs that have not been marked as applied."""
+        with self._connect() as conn:
+            res = conn.execute(
+                "SELECT COUNT(*) FROM matched_jobs WHERE applied_at IS NULL ORDER BY matched_at"
+            ).fetchone()
+        return res[0] if res else 0
+
     def mark_applied(self, url: str) -> None:
         """Stamp applied_at on a matched job."""
         with self._connect() as conn:

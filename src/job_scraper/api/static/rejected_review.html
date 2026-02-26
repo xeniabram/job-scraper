@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f0f0f" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Rejected Review">
+<title>Rejected Review</title>
+<style>
+:root {
+  --bg:               #0f0f0f;
+  --surface:          #1a1a1a;
+  --surface-hover:    #222;
+  --surface2:         #222;
+  --surface3:         #333;
+  --border:           #2a2a2a;
+  --text:             #e0e0e0;
+  --text-dim:         #b0b0b0;
+  --text-muted:       #888;
+  --text-faint:       #555;
+  --text-heading:     #fff;
+  --scrollbar:        #333;
+
+  --btn-approve-bg:         #1c0a0a;
+  --btn-approve-color:      #f87171;
+  --btn-approve-border:     #7f1d1d;
+  --btn-approve-hover:      #2a0f0f;
+
+  --btn-wrong-bg:           #052e16;
+  --btn-wrong-color:        #4ade80;
+  --btn-wrong-border:       #166534;
+  --btn-wrong-hover:        #0a3d1f;
+
+  --match-bg:         #1a1a2e;
+  --match-color:      #818cf8;
+
+  --link-color:       #2563eb;
+  --note-focus:       #166534;
+  --error-color:      #f87171;
+
+  --tag-bg:           #1e1e2e;
+  --tag-color:        #a5b4fc;
+  --tag-optional-bg:  #1e2a1e;
+  --tag-optional-color: #6ee7b7;
+
+  --panel-border:     #1e1e1e;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg:               #f4f4f5;
+    --surface:          #ffffff;
+    --surface-hover:    #f9f9f9;
+    --surface2:         #f0f0f0;
+    --surface3:         #e4e4e7;
+    --border:           #d4d4d8;
+    --text:             #18181b;
+    --text-dim:         #3f3f46;
+    --text-muted:       #71717a;
+    --text-faint:       #a1a1aa;
+    --text-heading:     #18181b;
+    --scrollbar:        #d4d4d8;
+
+    --btn-approve-bg:         #fee2e2;
+    --btn-approve-color:      #b91c1c;
+    --btn-approve-border:     #fca5a5;
+    --btn-approve-hover:      #fecaca;
+
+    --btn-wrong-bg:           #dcfce7;
+    --btn-wrong-color:        #15803d;
+    --btn-wrong-border:       #86efac;
+    --btn-wrong-hover:        #bbf7d0;
+
+    --match-bg:         #ede9fe;
+    --match-color:      #5b21b6;
+
+    --link-color:       #2563eb;
+    --note-focus:       #15803d;
+    --error-color:      #dc2626;
+
+    --tag-bg:           #ede9fe;
+    --tag-color:        #4c1d95;
+    --tag-optional-bg:  #d1fae5;
+    --tag-optional-color: #065f46;
+
+    --panel-border:     #e4e4e7;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* ── Layout ── */
+.layout {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  height: calc(100dvh - 0px);
+}
+
+/* ── Left sidebar ── */
+.sidebar {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--panel-border);
+  overflow: hidden;
+}
+
+.sidebar-header {
+  padding: 20px 16px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.sidebar-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.counter {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.search-wrap {
+  padding: 0 12px 10px;
+  flex-shrink: 0;
+}
+
+.search-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.search-input:focus { border-color: var(--link-color); }
+.search-input::placeholder { color: var(--text-faint); }
+
+@media (prefers-color-scheme: dark) {
+  .search-input { border: none; }
+}
+
+.job-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 12px;
+}
+
+.job-item {
+  padding: 11px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.12s;
+  margin-bottom: 2px;
+}
+.job-item:hover { background: var(--surface-hover); }
+.job-item.active { background: var(--surface2); }
+
+.job-item-role {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-heading);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job-item-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+/* ── Main detail panel ── */
+.detail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  font-size: 15px;
+  flex-direction: column;
+  gap: 10px;
+}
+.placeholder-icon { font-size: 40px; }
+
+.detail-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 20px 0;
+}
+
+/* ── Job header card ── */
+.card {
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  .card { border: none; }
+}
+
+.job-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-heading);
+  line-height: 1.3;
+  margin-bottom: 3px;
+}
+.job-company {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.job-url {
+  font-size: 12px;
+  color: var(--link-color);
+  text-decoration: none;
+  word-break: break-all;
+  display: block;
+  margin-bottom: 10px;
+}
+.job-url:hover { text-decoration: underline; }
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.match-badge {
+  display: inline-block;
+  background: var(--match-bg);
+  color: var(--match-color);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+.date-badge {
+  display: inline-block;
+  background: var(--surface2);
+  color: var(--text-faint);
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+/* ── Sections ── */
+.section {
+  margin-bottom: 14px;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  margin-bottom: 7px;
+}
+
+.text-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  max-height: 110px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+@media (prefers-color-scheme: dark) {
+  .text-box { border: none; }
+}
+
+/* ── Tech tags ── */
+.tags-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tag {
+  display: inline-block;
+  background: var(--tag-bg);
+  color: var(--tag-color);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 6px;
+}
+.tag.optional {
+  background: var(--tag-optional-bg);
+  color: var(--tag-optional-color);
+}
+.tag.optional::after {
+  content: " ·opt";
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* ── Note input ── */
+.note-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+  min-height: 72px;
+  transition: border-color 0.2s;
+}
+.note-input:focus { border-color: var(--note-focus); }
+.note-input::placeholder { color: var(--text-faint); }
+@media (prefers-color-scheme: dark) {
+  .note-input { border: none; background: var(--surface); }
+  .note-input:focus { outline: 1px solid var(--note-focus); }
+}
+
+.field-error {
+  font-size: 12px;
+  color: var(--error-color);
+  margin-top: 5px;
+  min-height: 16px;
+  padding-left: 2px;
+}
+
+/* ── Action buttons ── */
+.actions {
+  display: flex;
+  gap: 10px;
+  padding: 14px 20px 24px;
+  flex-shrink: 0;
+}
+
+.btn-action {
+  flex: 1;
+  padding: 15px 8px;
+  border: none;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+  letter-spacing: 0.01em;
+  font-family: inherit;
+}
+.btn-action:active { transform: scale(0.98); }
+.btn-action:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+
+.btn-approve {
+  background: var(--btn-approve-bg);
+  color: var(--btn-approve-color);
+  border: 1px solid var(--btn-approve-border);
+}
+.btn-approve:hover:not(:disabled) { background: var(--btn-approve-hover); }
+
+.btn-wrong {
+  background: var(--btn-wrong-bg);
+  color: var(--btn-wrong-color);
+  border: 1px solid var(--btn-wrong-border);
+}
+.btn-wrong:hover:not(:disabled) { background: var(--btn-wrong-hover); }
+
+/* ── Empty / loading ── */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  gap: 10px;
+  padding: 40px;
+  text-align: center;
+}
+.empty-icon { font-size: 40px; }
+.empty-text { font-size: 14px; }
+
+.loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* ── Back link ── */
+.back-link {
+  font-size: 13px;
+  color: var(--text-faint);
+  text-decoration: none;
+  display: inline-block;
+  padding: 12px 16px 0;
+  flex-shrink: 0;
+}
+.back-link:hover { color: var(--text-muted); }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 4px; }
+
+/* ── Mobile: stack layout ── */
+@media (max-width: 700px) {
+  .layout { flex-direction: column; height: auto; overflow: visible; }
+  .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--panel-border); max-height: 260px; }
+  .detail { min-height: 0; }
+}
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <!-- LEFT: job list -->
+  <div class="sidebar">
+    <a class="back-link" href="/">← Back</a>
+    <div class="sidebar-header">
+      <span class="sidebar-title">Rejected Review</span>
+      <span class="counter" id="counter"></span>
+    </div>
+    <div class="search-wrap">
+      <input class="search-input" id="search" type="text" placeholder="Search jobs…" oninput="onSearch()">
+    </div>
+    <div class="job-list" id="job-list">
+      <div class="loading">Loading…</div>
+    </div>
+  </div>
+
+  <!-- RIGHT: detail -->
+  <div class="detail" id="detail">
+    <div class="placeholder" id="placeholder">
+      <div class="placeholder-icon">←</div>
+      <div>Select a job to review</div>
+    </div>
+  </div>
+</div>
+
+<script>
+let allJobs = [];
+let filteredJobs = [];
+let selectedUrl = null;
+let scraped = {};
+
+async function init() {
+  try {
+    const res = await fetch('/api/rejected/jobs');
+    if (!res.ok) throw new Error('Failed to fetch');
+    allJobs = await res.json();
+    filteredJobs = [...allJobs];
+    renderList();
+  } catch (e) {
+    document.getElementById('job-list').innerHTML =
+      `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">Could not load.<br>${e.message}</div></div>`;
+  }
+}
+
+function renderList() {
+  const el = document.getElementById('job-list');
+  const total = allJobs.length;
+  const shown = filteredJobs.length;
+  document.getElementById('counter').textContent = shown === total
+    ? `${total}`
+    : `${shown} / ${total}`;
+
+  if (filteredJobs.length === 0) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">✓</div><div class="empty-text">No unreviewed rejected jobs.</div></div>`;
+    return;
+  }
+
+  el.innerHTML = '';
+  filteredJobs.forEach(job => {
+    const div = document.createElement('div');
+    div.className = 'job-item' + (job.url === selectedUrl ? ' active' : '');
+    div.dataset.url = job.url;
+    const date = (job.rejected_at || '').slice(0, 10);
+    div.innerHTML = `
+      <div class="job-item-role">${esc(job.role || '—')}</div>
+      <div class="job-item-meta">${esc(date)}</div>
+    `;
+    div.addEventListener('click', () => selectJob(job));
+    el.appendChild(div);
+  });
+}
+
+function onSearch() {
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  filteredJobs = q
+    ? allJobs.filter(j => (j.role || '').toLowerCase().includes(q))
+    : [...allJobs];
+  renderList();
+  if (selectedUrl && !filteredJobs.find(j => j.url === selectedUrl)) {
+    selectedUrl = null;
+    showPlaceholder();
+  }
+}
+
+async function selectJob(job) {
+  selectedUrl = job.url;
+  renderList();
+
+  if (!scraped[job.url]) {
+    try {
+      const res = await fetch('/api/rejected/scraped?url=' + encodeURIComponent(job.url));
+      scraped[job.url] = res.ok ? await res.json() : {};
+    } catch { scraped[job.url] = {}; }
+  }
+
+  renderDetail(job, scraped[job.url] || {});
+}
+
+function showPlaceholder() {
+  const detail = document.getElementById('detail');
+  detail.innerHTML = `
+    <div class="placeholder" id="placeholder">
+      <div class="placeholder-icon">←</div>
+      <div>Select a job to review</div>
+    </div>`;
+}
+
+function renderDetail(job, sc) {
+  const detail = document.getElementById('detail');
+
+  const techs = sc.technologies || [];
+  const optional = sc.technologies_optional || [];
+  const techHTML = techs.map(t => `<span class="tag">${esc(t)}</span>`).join('') +
+    optional.map(t => `<span class="tag optional">${esc(t)}</span>`).join('');
+
+  const company = sc.company || '';
+  const header = company ? `${job.role || '—'}  ·  ${company}` : (job.role || '—');
+  const pct = job.skillset_match_percent ?? 0;
+  const date = (job.rejected_at || '').slice(0, 10);
+  const url = job.url || '';
+
+  detail.innerHTML = `
+    <div class="detail-scroll" id="detail-scroll">
+      <div class="card">
+        <div class="job-title">${esc(header)}</div>
+        <a class="job-url" href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>
+        <div class="card-meta">
+          <span class="match-badge">Match: ${pct}%</span>
+          <span class="date-badge">Rejected ${esc(date)}</span>
+        </div>
+      </div>
+
+      ${techHTML ? `
+      <div class="section">
+        <div class="section-label">Technologies</div>
+        <div class="tags-wrap">${techHTML}</div>
+      </div>` : ''}
+
+      <div class="section">
+        <div class="section-label">Rejection Reason (LLM)</div>
+        <div class="text-box">${esc(job.reason || '')}</div>
+      </div>
+
+      <div class="section">
+        <div class="section-label">Your Note — why LLM was wrong</div>
+        <textarea class="note-input" id="user-note" placeholder="Explain what the LLM got wrong…"></textarea>
+        <div class="field-error" id="note-error"></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn-action btn-approve" onclick="onApproveRejection()">Approve Rejection ✗</button>
+      <button class="btn-action btn-wrong" onclick="onRejectedIncorrectly()">Was Wrong ✓</button>
+    </div>
+  `;
+}
+
+async function onApproveRejection() {
+  const job = allJobs.find(j => j.url === selectedUrl);
+  if (!job) return;
+  const reason = document.querySelector('.text-box')?.textContent.trim();
+  setButtons(true);
+  try {
+    await fetch('/api/rejected/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: job.url, reason }),
+    });
+  } catch {}
+  removeJob(job.url);
+}
+
+async function onRejectedIncorrectly() {
+  const job = allJobs.find(j => j.url === selectedUrl);
+  if (!job) return;
+  const note = document.getElementById('user-note')?.value.trim();
+  if (!note) {
+    document.getElementById('note-error').textContent = 'Your note is required.';
+    return;
+  }
+  document.getElementById('note-error').textContent = '';
+  setButtons(true);
+  const llmReason = document.querySelector('.text-box')?.textContent.trim();
+  try {
+    await fetch('/api/rejected/incorrect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: job.url, llm_reason: llmReason, user_note: note }),
+    });
+  } catch {}
+  removeJob(job.url);
+}
+
+function setButtons(disabled) {
+  document.querySelectorAll('.btn-action').forEach(b => b.disabled = disabled);
+}
+
+function removeJob(url) {
+  allJobs = allJobs.filter(j => j.url !== url);
+  filteredJobs = filteredJobs.filter(j => j.url !== url);
+  selectedUrl = null;
+  renderList();
+  showPlaceholder();
+}
+
+function esc(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+init();
+</script>
+</body>
+</html>

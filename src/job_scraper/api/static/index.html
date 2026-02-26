@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f0f0f" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Job Scraper">
+<link rel="apple-touch-icon" href="/static/icon.png">
+<link rel="manifest" href="/static/manifest.json">
+<title>Job Scraper</title>
+<style>
+:root {
+  --bg:               #0f0f0f;
+  --surface:          #1a1a1a;
+  --surface-hover:    #222;
+  --surface2:         #222;
+  --surface3:         #2a2a2a;
+  --surface4:         #333;
+  --border:           #2a2a2a;
+  --text:             #e0e0e0;
+  --text-dim:         #b0b0b0;
+  --text-muted:       #888;
+  --text-faint:       #555;
+  --text-heading:     #fff;
+  --scrollbar:        #333;
+  --divider:          #222;
+
+  --btn-scrape:        #2563eb;
+  --btn-scrape-hover:  #1d4ed8;
+  --btn-filter:        #7c3aed;
+  --btn-filter-hover:  #6d28d9;
+  --btn-optimize:      #059669;
+  --btn-optimize-hover:#047857;
+  --btn-review-bg:     #1a1400;
+  --btn-review-color:  #fbbf24;
+  --btn-review-border: #78350f;
+  --btn-review-hover:  #231a00;
+  --btn-rejected-bg:   #1c0a0a;
+  --btn-rejected-color:#f87171;
+  --btn-rejected-border:#7f1d1d;
+  --btn-rejected-hover:#2a0f0f;
+
+  --btn-dropdown-accent: #2563eb;
+  --status-run:  #facc15;
+  --status-done: #4ade80;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg:               #f4f4f5;
+    --surface:          #ffffff;
+    --surface-hover:    #f9f9f9;
+    --surface2:         #f0f0f0;
+    --surface3:         #e4e4e7;
+    --surface4:         #d4d4d8;
+    --border:           #d4d4d8;
+    --text:             #18181b;
+    --text-dim:         #3f3f46;
+    --text-muted:       #71717a;
+    --text-faint:       #a1a1aa;
+    --text-heading:     #18181b;
+    --scrollbar:        #d4d4d8;
+    --divider:          #e4e4e7;
+
+    --btn-review-bg:     #fffbeb;
+    --btn-review-color:  #b45309;
+    --btn-review-border: #fde68a;
+    --btn-review-hover:  #fef3c7;
+    --btn-rejected-bg:   #fee2e2;
+    --btn-rejected-color:#b91c1c;
+    --btn-rejected-border:#fca5a5;
+    --btn-rejected-hover:#fecaca;
+
+    --status-run:  #d97706;
+    --status-done: #16a34a;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+.header {
+  padding: 20px 20px 10px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+/* ── Button grid ── */
+.buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 10px 20px;
+}
+
+.btn {
+  padding: 15px 10px;
+  border: none;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  font-family: inherit;
+  color: #fff;
+  text-align: center;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+/* ── Scrape split button ── */
+.btn-scrape-wrap {
+  display: flex;
+  border-radius: 14px;
+  overflow: visible;
+  position: relative;
+  grid-column: span 1;
+}
+.btn-scrape {
+  flex: 1;
+  background: var(--btn-scrape);
+  color: #fff;
+  border-radius: 14px 0 0 14px;
+  border-right: 1px solid var(--btn-scrape-hover);
+  border: none;
+  padding: 15px 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, transform 0.1s;
+}
+.btn-scrape:active { transform: scale(0.97); }
+.btn-scrape:hover:not(:disabled) { background: var(--btn-scrape-hover); }
+.btn-scrape:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-scrape-arrow {
+  flex: 0 0 38px;
+  background: var(--btn-scrape);
+  color: #fff;
+  border-radius: 0 14px 14px 0;
+  font-size: 12px;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid rgba(255,255,255,0.15);
+  transition: background 0.15s;
+}
+.btn-scrape-arrow:hover:not(:disabled) { background: var(--btn-scrape-hover); }
+.btn-scrape-arrow:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Dropdown ── */
+.dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 200px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+}
+.dropdown.open { display: block; }
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  transition: background 0.12s;
+}
+.dropdown-item:hover { background: var(--surface3); }
+.dropdown-item:active { background: var(--surface4); }
+
+.dropdown-item .check {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+.dropdown-item.selected .check {
+  background: var(--btn-scrape);
+  border-color: var(--btn-scrape);
+  color: #fff;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: var(--divider);
+  margin: 4px 0;
+}
+.dropdown-action {
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--btn-dropdown-accent);
+  cursor: pointer;
+  display: block;
+  width: 100%;
+  text-align: center;
+  background: none;
+  border: none;
+  font-family: inherit;
+}
+.dropdown-action:hover { background: var(--surface3); }
+
+/* ── Other buttons ── */
+.btn-filter   { background: var(--btn-filter); }
+.btn-filter:hover:not(:disabled)   { background: var(--btn-filter-hover); }
+.btn-optimize { background: var(--btn-optimize); }
+.btn-optimize:hover:not(:disabled) { background: var(--btn-optimize-hover); }
+
+.btn-review {
+  background: var(--btn-review-bg);
+  color: var(--btn-review-color);
+  border: 1px solid var(--btn-review-border);
+}
+.btn-review:hover:not(:disabled) { background: var(--btn-review-hover); }
+
+.btn-rejected {
+  background: var(--btn-rejected-bg);
+  color: var(--btn-rejected-color);
+  border: 1px solid var(--btn-rejected-border);
+}
+.btn-rejected:hover:not(:disabled) { background: var(--btn-rejected-hover); }
+
+/* ── Status ── */
+.status {
+  padding: 6px 20px;
+  font-size: 13px;
+  color: var(--text-muted);
+  min-height: 24px;
+}
+.status.running { color: var(--status-run); }
+.status.done    { color: var(--status-done); }
+
+/* ── Log ── */
+.log-box {
+  flex: 1;
+  margin: 0 20px 20px;
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 14px;
+  overflow-y: auto;
+  font-family: "SF Mono", "Menlo", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-all;
+  border: 1px solid var(--border);
+}
+@media (prefers-color-scheme: dark) {
+  .log-box { border: none; }
+}
+.log-box .line { display: block; }
+.log-box .line:last-child { color: var(--text); }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<div class="header">Job Scraper</div>
+
+<div class="buttons">
+
+  <!-- Scrape split button -->
+  <div class="btn-scrape-wrap" id="scrape-wrap">
+    <button class="btn-scrape" onclick="runScrape()">Scrape</button>
+    <button class="btn-scrape-arrow" id="arrow-btn" onclick="toggleDropdown(event)">▾</button>
+    <div class="dropdown" id="sources-dropdown">
+      <div id="sources-list">
+        <div class="dropdown-item" style="color:var(--text-muted);cursor:default">Loading…</div>
+      </div>
+      <div class="dropdown-divider"></div>
+      <button class="dropdown-action" onclick="runScrape(); closeDropdown()">Run selected ▶</button>
+    </div>
+  </div>
+
+  <button class="btn btn-filter"   onclick="run('filter')">Filter</button>
+  <button class="btn btn-optimize" onclick="run('optimize')">Optimize</button>
+
+  <button class="btn btn-review"   id="btn-review"   onclick="location.href='/review'">Review</button>
+  <button class="btn btn-rejected" id="btn-rejected" onclick="location.href='/rejected-review'">Rejected</button>
+
+</div>
+
+<div class="status" id="status"></div>
+<div class="log-box" id="log"></div>
+
+<script>
+const log = document.getElementById('log');
+const status = document.getElementById('status');
+const HOST = location.host;
+
+let selectedSources = new Set();
+let allSources = [];
+
+async function loadSources() {
+  try {
+    const res = await fetch('/api/sources');
+    if (!res.ok) throw new Error();
+    allSources = await res.json();
+    renderSources();
+  } catch {
+    document.getElementById('sources-list').innerHTML =
+      '<div class="dropdown-item" style="color:var(--text-muted);cursor:default">Failed to load</div>';
+    document.querySelector('.dropdown-divider').style.display = 'none';
+    document.querySelector('.dropdown-action').style.display = 'none';
+  }
+}
+
+function renderSources() {
+  const list = document.getElementById('sources-list');
+  list.innerHTML = '';
+
+  const allItem = document.createElement('button');
+  allItem.className = 'dropdown-item' + (selectedSources.size === 0 ? ' selected' : '');
+  allItem.innerHTML = `<span class="check">${selectedSources.size === 0 ? '✓' : ''}</span> All sources`;
+  allItem.onclick = (e) => { e.stopPropagation(); selectedSources.clear(); renderSources(); };
+  list.appendChild(allItem);
+
+  allSources.forEach(src => {
+    const item = document.createElement('button');
+    const active = selectedSources.has(src);
+    item.className = 'dropdown-item' + (active ? ' selected' : '');
+    item.innerHTML = `<span class="check">${active ? '✓' : ''}</span> ${src}`;
+    item.onclick = (e) => {
+      e.stopPropagation();
+      selectedSources.has(src) ? selectedSources.delete(src) : selectedSources.add(src);
+      renderSources();
+    };
+    list.appendChild(item);
+  });
+}
+
+function toggleDropdown(e) {
+  e.stopPropagation();
+  document.getElementById('sources-dropdown').classList.toggle('open');
+}
+function closeDropdown() {
+  document.getElementById('sources-dropdown').classList.remove('open');
+}
+document.addEventListener('click', (e) => {
+  if (!document.getElementById('scrape-wrap').contains(e.target)) closeDropdown();
+});
+
+function runScrape() {
+  const sources = selectedSources.size > 0 ? [...selectedSources] : [];
+  const params = sources.length ? '?' + sources.map(s => `source=${encodeURIComponent(s)}`).join('&') : '';
+  run('scrape', params);
+}
+
+function run(endpoint, params = '') {
+  log.innerHTML = '';
+  document.querySelectorAll('button').forEach(b => b.disabled = true);
+  status.textContent = `Running ${endpoint}…`;
+  status.className = 'status running';
+
+  const ws = new WebSocket(`wss://${HOST}/${endpoint}${params}`);
+  ws.onmessage = e => {
+    const line = document.createElement('span');
+    line.className = 'line';
+    line.textContent = e.data;
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  };
+  ws.onclose = () => {
+    document.querySelectorAll('button').forEach(b => b.disabled = false);
+    status.textContent = 'Done ✓';
+    status.className = 'status done';
+  };
+  ws.onerror = () => {
+    document.querySelectorAll('button').forEach(b => b.disabled = false);
+    status.textContent = 'Connection error';
+    status.className = 'status';
+  };
+}
+
+async function loadCounts() {
+  try {
+    const [r1, r2] = await Promise.all([
+      fetch('/api/review/count'),
+      fetch('/api/rejected/count'),
+    ]);
+    const d1 = r1.ok ? await r1.json() : null;
+    const d2 = r2.ok ? await r2.json() : null;
+    if (d1?.count > 0) document.getElementById('btn-review').textContent = `Review (${d1.count})`;
+    if (d2?.count > 0) document.getElementById('btn-rejected').textContent = `Rejected (${d2.count})`;
+  } catch {}
+}
+
+loadCounts();
+loadSources();
+</script>
+</body>
+</html>

@@ -160,7 +160,7 @@ Return ONLY valid JSON."""
         logger.info(
             f"Job '{job_data.title}': "
             f"{'MATCH' if result.match else 'REJECT'} "
-            f"(critical: {result.critical_reqs} | missing: {result.missing} | {result.reason})"
+            f"({result.reason})"
         )
         return result
 
@@ -192,7 +192,7 @@ Return ONLY valid JSON."""
             2. Replace generic phrasing with job-specific terminology where the meaning
             is identical (e.g. "messaging systems" → "RabbitMQ / NATS" if those are
             in the base text).
-            3. Add keywords from the job.
+            3. Rewrite the keyword section. Add keywords from the job, but keep it no longer than 35 words. Leave only the most important keywords.
             4. Keep the about_me to roughly the same length as the input (±20%).
             5. Append any newly incorporated technical keywords to the keywords string
             (comma-separated, no duplicates).

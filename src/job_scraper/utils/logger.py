@@ -53,4 +53,4 @@ def setup_logger(log_dir: Path = Path("logs"), log_level: str = "INFO") -> None:
     colorize=False,
 )
 
-    logger.info("Logger initialized")
+    logger.debug("Logger initialized")
