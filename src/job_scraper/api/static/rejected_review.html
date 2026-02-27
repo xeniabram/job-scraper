@@ -96,7 +96,8 @@ body {
   font-family: -apple-system, sans-serif;
   background: var(--bg);
   color: var(--text);
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
@@ -107,7 +108,7 @@ body {
   flex: 1;
   display: flex;
   overflow: hidden;
-  height: calc(100dvh - 0px);
+  min-height: 0;
 }
 
 /* ── Left sidebar ── */
@@ -351,10 +352,12 @@ body {
   transition: border-color 0.2s;
 }
 .note-input:focus { border-color: var(--note-focus); }
+.note-input.error { border-color: var(--error-color) !important; }
 .note-input::placeholder { color: var(--text-faint); }
 @media (prefers-color-scheme: dark) {
   .note-input { border: none; background: var(--surface); }
   .note-input:focus { outline: 1px solid var(--note-focus); }
+  .note-input.error { outline: 1px solid var(--error-color); }
 }
 
 .field-error {
@@ -481,7 +484,6 @@ body {
 let allJobs = [];
 let filteredJobs = [];
 let selectedUrl = null;
-let scraped = {};
 
 async function init() {
   try {
@@ -514,10 +516,9 @@ function renderList() {
     const div = document.createElement('div');
     div.className = 'job-item' + (job.url === selectedUrl ? ' active' : '');
     div.dataset.url = job.url;
-    const date = (job.rejected_at || '').slice(0, 10);
     div.innerHTML = `
-      <div class="job-item-role">${esc(job.role || '—')}</div>
-      <div class="job-item-meta">${esc(date)}</div>
+      <div class="job-item-role">${esc(job.title || '—')}</div>
+      <div class="job-item-meta">${esc(job.company || '')}</div>
     `;
     div.addEventListener('click', () => selectJob(job));
     el.appendChild(div);
@@ -527,7 +528,9 @@ function renderList() {
 function onSearch() {
   const q = document.getElementById('search').value.trim().toLowerCase();
   filteredJobs = q
-    ? allJobs.filter(j => (j.role || '').toLowerCase().includes(q))
+    ? allJobs.filter(j =>
+        (j.title || '').toLowerCase().includes(q) ||
+        (j.company || '').toLowerCase().includes(q))
     : [...allJobs];
   renderList();
   if (selectedUrl && !filteredJobs.find(j => j.url === selectedUrl)) {
@@ -536,18 +539,10 @@ function onSearch() {
   }
 }
 
-async function selectJob(job) {
+function selectJob(job) {
   selectedUrl = job.url;
   renderList();
-
-  if (!scraped[job.url]) {
-    try {
-      const res = await fetch('/api/rejected/scraped?url=' + encodeURIComponent(job.url));
-      scraped[job.url] = res.ok ? await res.json() : {};
-    } catch { scraped[job.url] = {}; }
-  }
-
-  renderDetail(job, scraped[job.url] || {});
+  renderDetail(job);
 }
 
 function showPlaceholder() {
@@ -559,28 +554,26 @@ function showPlaceholder() {
     </div>`;
 }
 
-function renderDetail(job, sc) {
+function renderDetail(job) {
   const detail = document.getElementById('detail');
 
-  const techs = sc.technologies || [];
-  const optional = sc.technologies_optional || [];
+  const desc = job.description || {};
+  const techs = desc.technologies || [];
+  const optional = desc.technologies_optional || [];
   const techHTML = techs.map(t => `<span class="tag">${esc(t)}</span>`).join('') +
     optional.map(t => `<span class="tag optional">${esc(t)}</span>`).join('');
 
-  const company = sc.company || '';
-  const header = company ? `${job.role || '—'}  ·  ${company}` : (job.role || '—');
-  const pct = job.skillset_match_percent ?? 0;
-  const date = (job.rejected_at || '').slice(0, 10);
+  const pct = job.match_pct ?? 0;
   const url = job.url || '';
 
   detail.innerHTML = `
     <div class="detail-scroll" id="detail-scroll">
       <div class="card">
-        <div class="job-title">${esc(header)}</div>
+        <div class="job-title">${esc(job.title || '—')}</div>
+        <div class="job-company">${esc(job.company || '')}</div>
         <a class="job-url" href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>
         <div class="card-meta">
           <span class="match-badge">Match: ${pct}%</span>
-          <span class="date-badge">Rejected ${esc(date)}</span>
         </div>
       </div>
 
@@ -597,7 +590,7 @@ function renderDetail(job, sc) {
 
       <div class="section">
         <div class="section-label">Your Note — why LLM was wrong</div>
-        <textarea class="note-input" id="user-note" placeholder="Explain what the LLM got wrong…"></textarea>
+        <textarea class="note-input" id="user-note" placeholder="Explain what the LLM got wrong…" oninput="this.classList.remove('error'); document.getElementById('note-error').textContent='';"></textarea>
         <div class="field-error" id="note-error"></div>
       </div>
     </div>
@@ -612,13 +605,12 @@ function renderDetail(job, sc) {
 async function onApproveRejection() {
   const job = allJobs.find(j => j.url === selectedUrl);
   if (!job) return;
-  const reason = document.querySelector('.text-box')?.textContent.trim();
   setButtons(true);
   try {
-    await fetch('/api/rejected/approve', {
+    await fetch('/api/rejected/confirm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: job.url, reason }),
+      body: JSON.stringify({ url: job.url }),
     });
   } catch {}
   removeJob(job.url);
@@ -627,19 +619,21 @@ async function onApproveRejection() {
 async function onRejectedIncorrectly() {
   const job = allJobs.find(j => j.url === selectedUrl);
   if (!job) return;
-  const note = document.getElementById('user-note')?.value.trim();
+  const noteEl = document.getElementById('user-note');
+  const note = noteEl?.value.trim();
   if (!note) {
     document.getElementById('note-error').textContent = 'Your note is required.';
+    noteEl?.classList.add('error');
     return;
   }
   document.getElementById('note-error').textContent = '';
+  noteEl?.classList.remove('error');
   setButtons(true);
-  const llmReason = document.querySelector('.text-box')?.textContent.trim();
   try {
-    await fetch('/api/rejected/incorrect', {
+    await fetch('/api/rejected/promote', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: job.url, llm_reason: llmReason, user_note: note }),
+      body: JSON.stringify({ url: job.url, user_note: note }),
     });
   } catch {}
   removeJob(job.url);

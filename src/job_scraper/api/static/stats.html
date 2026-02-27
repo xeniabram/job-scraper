@@ -26,6 +26,7 @@
 
   --color-approved: #4ade80;
   --color-rejected: #f87171;
+  --color-pending:  #fb923c;
   --color-manual:   #888;
   --color-new:      #60a5fa;
 }
@@ -47,6 +48,7 @@
 
     --color-approved: #16a34a;
     --color-rejected: #dc2626;
+    --color-pending:  #ea580c;
     --color-manual:   #71717a;
     --color-new:      #2563eb;
   }
@@ -114,6 +116,7 @@ body {
 .stat-value.blue   { color: var(--color-new); }
 .stat-value.green  { color: var(--color-approved); }
 .stat-value.red    { color: var(--color-rejected); }
+.stat-value.orange { color: var(--color-pending); }
 .stat-value.muted  { color: var(--color-manual); }
 
 .stat-label {
@@ -243,16 +246,16 @@ body {
     <div class="stat-label">Scraped</div>
   </div>
   <div class="stat-card">
+    <div class="stat-value orange" id="stat-pending">—</div>
+    <div class="stat-label">Pending</div>
+  </div>
+  <div class="stat-card">
     <div class="stat-value green" id="stat-matched">—</div>
     <div class="stat-label">Matched</div>
   </div>
   <div class="stat-card">
-    <div class="stat-value red" id="stat-rejected-llm">—</div>
-    <div class="stat-label">LLM Rejected</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-value muted" id="stat-rejected-manual">—</div>
-    <div class="stat-label">Manually Rejected</div>
+    <div class="stat-value red" id="stat-rejected">—</div>
+    <div class="stat-label">Rejected</div>
   </div>
 </div>
 
@@ -274,6 +277,10 @@ body {
       <div class="legend-swatch" style="background:rgba(248,113,113,0.7)"></div>
       Rejected
     </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:rgba(251,146,60,0.7)"></div>
+      Pending
+    </div>
   </div>
   <div class="chart-wrap">
     <canvas id="chart"></canvas>
@@ -285,19 +292,30 @@ body {
 let allData = null;
 let weekOffset = 0;
 let chartInstance = null;
+let anchorDate = null; // latest date from server (may be ahead of browser timezone)
 const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
+function localDateStr(d) {
+  // Format a Date as YYYY-MM-DD in the browser's LOCAL timezone (not UTC).
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function getWeekDates(offset) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const end = new Date(today);
-  end.setDate(today.getDate() + offset * 7);
+  // Use server's latest date as anchor so pending jobs scraped "today" (UTC)
+  // are visible even when the browser's local date is still yesterday.
+  const base = anchorDate ? new Date(anchorDate + 'T00:00:00') : new Date();
+  base.setHours(0, 0, 0, 0);
+  const end = new Date(base);
+  end.setDate(base.getDate() + offset * 7);
   const start = new Date(end);
   start.setDate(end.getDate() - 6);
   const dates = [];
   const cur = new Date(start);
   while (cur <= end) {
-    dates.push(cur.toISOString().split('T')[0]);
+    dates.push(localDateStr(cur));
     cur.setDate(cur.getDate() + 1);
   }
   return dates;
@@ -321,14 +339,20 @@ function renderChart() {
   document.getElementById('nav-label').textContent = formatRangeLabel(dates);
   document.getElementById('btn-next').disabled = weekOffset >= 0;
 
-  const toMap = arr => Object.fromEntries(arr.map(d => [d.day, d.count]));
-  const approvedMap = toMap(allData.approved);
-  const rejectedMap = toMap(allData.rejected);
+  const dailyMap = Object.fromEntries(allData.daily.map(d => [d.date, d]));
 
-  const matchedData = dates.map(d => approvedMap[d] || 0);
-  // rejected dataset carries the stacked total (matched + rejected) so fill:'-1'
-  // paints only the gap between the two lines — areas never overlap
-  const totalData = dates.map(d => (approvedMap[d] || 0) + (rejectedMap[d] || 0));
+  // Each dataset holds a running cumulative total so fill:'-1' paints only its own band.
+  // Layer order bottom→top: matched / pending / rejected.
+  const yMatched  = dates.map(d => dailyMap[d]?.matched || 0);
+  const yPending  = dates.map((d, i) => {
+    const e = dailyMap[d];
+    const pending = e ? Math.max(0, e.scraped - e.matched - e.rejected) : 0;
+    return yMatched[i] + pending;
+  });
+  const yRejected = dates.map((d, i) => {
+    const e = dailyMap[d];
+    return yPending[i] + (e?.rejected || 0);
+  });
   const labels = dates.map(shortDayLabel);
 
   const gridColor = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)';
@@ -347,7 +371,7 @@ function renderChart() {
       datasets: [
         {
           label: 'Matched',
-          data: matchedData,
+          data: yMatched,
           fill: 'origin',
           backgroundColor: 'rgba(74,222,128,0.4)',
           borderColor: 'rgba(74,222,128,0.9)',
@@ -359,8 +383,21 @@ function renderChart() {
           pointBorderWidth: 0,
         },
         {
+          label: 'Pending',
+          data: yPending,
+          fill: '-1',
+          backgroundColor: 'rgba(251,146,60,0.4)',
+          borderColor: 'rgba(251,146,60,0.9)',
+          borderWidth: 2,
+          tension: 0.3,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          pointBackgroundColor: 'rgba(251,146,60,0.9)',
+          pointBorderWidth: 0,
+        },
+        {
           label: 'Rejected',
-          data: totalData,
+          data: yRejected,
           fill: '-1',
           backgroundColor: 'rgba(248,113,113,0.4)',
           borderColor: 'rgba(248,113,113,0.9)',
@@ -388,10 +425,11 @@ function renderChart() {
           padding: 10,
           callbacks: {
             label: ctx => {
-              // rejected dataset stores stacked total — show actual value
-              const actual = ctx.datasetIndex === 1
-                ? ctx.parsed.y - (ctx.chart.data.datasets[0].data[ctx.dataIndex] || 0)
-                : ctx.parsed.y;
+              // Each dataset stores the cumulative top of its band — recover the actual value.
+              const ds = ctx.chart.data.datasets;
+              const i  = ctx.dataIndex;
+              const below = ctx.datasetIndex > 0 ? (ds[ctx.datasetIndex - 1].data[i] || 0) : 0;
+              const actual = ctx.parsed.y - below;
               return ` ${ctx.dataset.label}: ${actual}`;
             },
             footer: items => {
@@ -429,15 +467,22 @@ async function load() {
 
     document.getElementById('stat-scraped').textContent = allData.totals.scraped;
     document.getElementById('stat-matched').textContent = allData.totals.matched;
-    document.getElementById('stat-rejected-llm').textContent = allData.totals.rejected_llm;
-    document.getElementById('stat-rejected-manual').textContent = allData.totals.rejected_manual;
+    document.getElementById('stat-rejected').textContent = allData.totals.rejected;
+    document.getElementById('stat-pending').textContent =
+      Math.max(0, allData.totals.scraped - allData.totals.matched - allData.totals.rejected);
 
-    const hasData = allData.approved.length > 0 || allData.rejected.length > 0;
+    const hasData = allData.daily.length > 0;
     if (!hasData) {
       document.getElementById('chart-card').innerHTML =
         '<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">No data yet.</div></div>';
       return;
     }
+
+    // Anchor to the server's latest date (daily is sorted DESC so [0] is most recent).
+    // This ensures the chart includes today's data even when the browser's local date
+    // lags behind the server's UTC date.
+    const clientToday = localDateStr(new Date());
+    anchorDate = allData.daily[0].date > clientToday ? allData.daily[0].date : clientToday;
 
     renderChart();
   } catch (e) {

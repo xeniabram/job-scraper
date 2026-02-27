@@ -2,7 +2,7 @@ import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Annotated
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from job_scraper.config import settings
+from job_scraper.exceptions import JobNotFound
 from job_scraper.scraper import AVAILABLE_SOURCES
 from job_scraper.storage import ResultsStorage
 
@@ -55,9 +56,9 @@ async def _run_command(websocket: WebSocket, commands: list[str]) -> None:
 
 
 @app.websocket("/scrape")
-async def scrape(websocket: WebSocket, source: list[str] = Query(default=[])):
-    valid = {s for s in source if s in AVAILABLE_SOURCES}
-    commands = ["scrape"] + (["--sources"] + list(valid) if valid else [])
+async def scrape(websocket: WebSocket, source: Annotated[list[str] | None, Query()] = None):
+    valid = {s for s in source if source in AVAILABLE_SOURCES} if source is not None else set()
+    commands = ["scrape"] + (["--sources", *valid] if valid else [])
     await _run_command(websocket, commands)
 
 @app.websocket("/filter")
@@ -91,42 +92,39 @@ async def get_daily_stats():
 
 @app.get("/api/review/jobs")
 async def get_review_jobs():
-    return ResultsStorage(settings.data_dir).load_unapplied_matched()
+    return ResultsStorage(settings.data_dir).load_optimized_matched()
 
 @app.get("/api/review/count")
 async def get_review_count():
-    return {"count": ResultsStorage(settings.data_dir).load_unapplied_matched_count()}
+    return {"count": ResultsStorage(settings.data_dir).count_optimized_matched()}
 
 @app.post("/api/review/applied")
 async def mark_applied(request: Request):
     body = await request.json()
-    ResultsStorage(settings.data_dir).mark_applied(body["url"])
+    try:
+        ResultsStorage(settings.data_dir).mark_applied(body["url"])
+    except JobNotFound as e:
+        raise HTTPException(status_code=404, detail="Job not found.") from e
     return {"status": "ok"}
 
 @app.post("/api/review/reject")
 async def reject_job(request: Request):
     body = await request.json()
-    ResultsStorage(settings.data_dir).reject_manually(body["url"], body["reason"])
+    try:
+        ResultsStorage(settings.data_dir).reject_manually(body["url"], body["reason"])
+    except JobNotFound as e:
+        raise HTTPException(status_code=404, detail="Job not found.") from e
     return {"status": "ok"}
 
 
 # ── Rejected review ───────────────────────────────────────────────────────────
 
-class ApproveRequest(BaseModel):
+class ConfirmRejectionRequest(BaseModel):
     url: str
-    reason: str
 
-class IncorrectRequest(BaseModel):
+class PromoteRequest(BaseModel):
     url: str
-    llm_reason: str
     user_note: str
-
-
-def _find_rejected_job(storage: ResultsStorage, url: str) -> dict[str, Any]:
-    for job in storage.load_unreviewed_rejected():
-        if job.get("url") == url:
-            return job
-    raise HTTPException(status_code=404, detail=f"Job not found: {url}")
 
 
 @app.get("/api/rejected/jobs")
@@ -137,49 +135,30 @@ async def get_rejected_jobs():
 async def get_rejected_count():
     return {"count": len(ResultsStorage(settings.data_dir).load_unreviewed_rejected())}
 
-@app.get("/api/rejected/scraped")
-async def get_scraped_details(url: str):
-    details = ResultsStorage(settings.data_dir).get_scraped_details(url)
-    if details is None:
-        raise HTTPException(status_code=404, detail="No scraped details found.")
-    return details
-
-@app.post("/api/rejected/approve")
-async def approve_rejection(body: ApproveRequest):
-    if not body.reason.strip():
-        raise HTTPException(status_code=422, detail="Reason must not be empty.")
-    storage = ResultsStorage(settings.data_dir)
-    job = _find_rejected_job(storage, body.url)
-    scraped: dict[str, Any] = storage.get_scraped_details(body.url) or {}
-    storage.save_to_learn(
-        url=body.url,
-        title=job.get("role") or "",
-        company=scraped.get("company") or "",
-        reason=body.reason.strip(),
-        correct_label="rejected",
-        skillset_match_percent=job.get("skillset_match_percent", 0),
-    )
+@app.post("/api/rejected/confirm")
+async def confirm_rejection(body: ConfirmRejectionRequest):
+    try:
+        ResultsStorage(settings.data_dir).confirm_rejection(body.url)
+    except JobNotFound as e:
+        raise HTTPException(status_code=404, detail="Job not found.") from e
     return {"status": "ok"}
 
-@app.post("/api/rejected/incorrect")
-async def mark_rejected_incorrectly(body: IncorrectRequest):
+@app.post("/api/rejected/promote")
+async def promote_to_matched(body: PromoteRequest):
     if not body.user_note.strip():
         raise HTTPException(status_code=422, detail="User note must not be empty.")
-    storage = ResultsStorage(settings.data_dir)
-    job = _find_rejected_job(storage, body.url)
-    scraped: dict[str, Any] = storage.get_scraped_details(body.url) or {}
-    storage.promote_to_matched(
-        url=body.url,
-        title=job.get("role") or "",
-        company=scraped.get("company") or "",
-        llm_reason=body.llm_reason,
-        user_note=body.user_note.strip(),
-        skillset_match_percent=job.get("skillset_match_percent", 0),
-    )
+    try:
+        ResultsStorage(settings.data_dir).promote_to_matched(body.url, user_note=body.user_note.strip())
+    except JobNotFound as e:
+        raise HTTPException(status_code=404, detail="Job not found.") from e
     return {"status": "ok"}
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def serve():
+    uvicorn.run("job_scraper.api.main:app", host="0.0.0.0", port=8000)
+
+
+def serve_dev():
     uvicorn.run("job_scraper.api.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -372,9 +372,9 @@ const urlEl = document.getElementById('url');
 urlEl.textContent = job.url || '';
 urlEl.href = job.url || '#';
 document.getElementById('match').textContent =
-`Skillset match: ${job.skillset_match_percent ?? 0}%`;
+`Skillset match: ${job.match_pct ?? 0}%`;
 document.getElementById('about').textContent =
-job.cv_about_me || '(no CV section)';
+job.cv_about || '(no CV section)';
 document.getElementById('keywords').textContent =
 job.cv_keywords || '(no keywords)';
 }

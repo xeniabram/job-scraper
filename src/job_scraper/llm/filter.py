@@ -4,7 +4,7 @@ import json
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from langdetect import detect
 from loguru import logger
@@ -14,6 +14,10 @@ from pydantic import BaseModel, Field, TypeAdapter
 from job_scraper.config.settings import CvOptimizationConfig, CvSection
 from job_scraper.schema import JobData
 
+
+class JobProto(Protocol):
+    title: str
+    description:dict
 
 class JobMatch(BaseModel):
     critical_reqs: list[str] = Field(default_factory=list)
@@ -166,7 +170,7 @@ Return ONLY valid JSON."""
 
     async def optimize_cv(
         self,
-        job_data: JobData,
+        job_data: JobProto,
         cv_config: CvOptimizationConfig,  # CvOptimizationConfig
     ) -> CvOptimized | None:
         """Rewrite CV sections to maximize keyword overlap with a specific job.
