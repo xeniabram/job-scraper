@@ -34,6 +34,10 @@ async def review():
 async def rejected_review():
     return FileResponse(STATIC_DIR / "rejected_review.html")
 
+@app.get("/stats")
+async def stats():
+    return FileResponse(STATIC_DIR / "stats.html")
+
 
 # ── WebSockets ───────────────────────────────────────────────────────────────
 
@@ -77,6 +81,10 @@ async def receive_jobs(request: Request):
 @app.get("/api/sources")
 async def get_sources():
     return list(AVAILABLE_SOURCES)
+
+@app.get("/api/stats")
+async def get_daily_stats():
+    return ResultsStorage(settings.data_dir).get_daily_stats()
 
 
 # ── Review (matched jobs) ─────────────────────────────────────────────────────

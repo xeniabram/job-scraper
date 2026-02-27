@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f0f0f" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Stats">
+<title>Stats</title>
+<style>
+:root {
+  --bg:               #0f0f0f;
+  --surface:          #1a1a1a;
+  --surface2:         #222;
+  --surface3:         #2a2a2a;
+  --surface4:         #333;
+  --border:           #2a2a2a;
+  --text:             #e0e0e0;
+  --text-dim:         #b0b0b0;
+  --text-muted:       #888;
+  --text-faint:       #555;
+  --text-heading:     #fff;
+  --scrollbar:        #333;
+
+  --color-approved: #4ade80;
+  --color-rejected: #f87171;
+  --color-manual:   #888;
+  --color-new:      #60a5fa;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg:               #f4f4f5;
+    --surface:          #ffffff;
+    --surface2:         #f0f0f0;
+    --surface3:         #e4e4e7;
+    --surface4:         #d4d4d8;
+    --border:           #d4d4d8;
+    --text:             #18181b;
+    --text-dim:         #3f3f46;
+    --text-muted:       #71717a;
+    --text-faint:       #a1a1aa;
+    --text-heading:     #18181b;
+    --scrollbar:        #d4d4d8;
+
+    --color-approved: #16a34a;
+    --color-rejected: #dc2626;
+    --color-manual:   #71717a;
+    --color-new:      #2563eb;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+.header {
+  padding: 20px 20px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.header-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.back-link {
+  font-size: 13px;
+  color: var(--text-faint);
+  text-decoration: none;
+  padding: 0 20px 16px;
+  display: inline-block;
+}
+.back-link:hover { color: var(--text-muted); }
+
+/* ── Totals ── */
+.totals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 0 20px 16px;
+}
+
+.stat-card {
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  text-align: center;
+}
+@media (prefers-color-scheme: dark) {
+  .stat-card { border: none; }
+}
+
+.stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.stat-value.blue   { color: var(--color-new); }
+.stat-value.green  { color: var(--color-approved); }
+.stat-value.red    { color: var(--color-rejected); }
+.stat-value.muted  { color: var(--color-manual); }
+
+.stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-top: 4px;
+}
+
+/* ── Chart card ── */
+.chart-card {
+  margin: 0 20px 20px;
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  flex: 1;
+  min-height: 0;
+}
+@media (prefers-color-scheme: dark) {
+  .chart-card { border: none; }
+}
+
+/* ── Week navigation ── */
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.chart-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+.week-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.nav-btn {
+  background: var(--surface2);
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.nav-btn:hover:not(:disabled) { background: var(--surface4); color: var(--text); }
+.nav-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+.nav-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 120px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Legend ── */
+.legend {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.legend-swatch {
+  width: 24px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.chart-wrap {
+  position: relative;
+  height: 240px;
+}
+
+/* ── Empty / error ── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  gap: 12px;
+  padding: 48px 40px;
+  text-align: center;
+}
+.empty-icon { font-size: 40px; }
+.empty-text { font-size: 14px; }
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span class="header-title">Statistics</span>
+</div>
+<a class="back-link" href="/">← Back</a>
+
+<div class="totals">
+  <div class="stat-card">
+    <div class="stat-value blue" id="stat-scraped">—</div>
+    <div class="stat-label">Scraped</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value green" id="stat-matched">—</div>
+    <div class="stat-label">Matched</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value red" id="stat-rejected-llm">—</div>
+    <div class="stat-label">LLM Rejected</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value muted" id="stat-rejected-manual">—</div>
+    <div class="stat-label">Manually Rejected</div>
+  </div>
+</div>
+
+<div class="chart-card" id="chart-card">
+  <div class="chart-header">
+    <span class="chart-title">Daily Activity</span>
+    <div class="week-nav">
+      <button class="nav-btn" id="btn-prev" onclick="changeWeek(-1)" title="Previous week">‹</button>
+      <span class="nav-label" id="nav-label"></span>
+      <button class="nav-btn" id="btn-next" onclick="changeWeek(1)" disabled title="Next week">›</button>
+    </div>
+  </div>
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:rgba(74,222,128,0.7)"></div>
+      Matched
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:rgba(248,113,113,0.7)"></div>
+      Rejected
+    </div>
+  </div>
+  <div class="chart-wrap">
+    <canvas id="chart"></canvas>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+let allData = null;
+let weekOffset = 0;
+let chartInstance = null;
+const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+function getWeekDates(offset) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const end = new Date(today);
+  end.setDate(today.getDate() + offset * 7);
+  const start = new Date(end);
+  start.setDate(end.getDate() - 6);
+  const dates = [];
+  const cur = new Date(start);
+  while (cur <= end) {
+    dates.push(cur.toISOString().split('T')[0]);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
+
+function formatRangeLabel(dates) {
+  const fmt = s => {
+    const d = new Date(s + 'T00:00:00');
+    return d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+  };
+  return `${fmt(dates[0])} – ${fmt(dates[6])}`;
+}
+
+function shortDayLabel(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en', { weekday: 'short', day: 'numeric' });
+}
+
+function renderChart() {
+  const dates = getWeekDates(weekOffset);
+  document.getElementById('nav-label').textContent = formatRangeLabel(dates);
+  document.getElementById('btn-next').disabled = weekOffset >= 0;
+
+  const toMap = arr => Object.fromEntries(arr.map(d => [d.day, d.count]));
+  const approvedMap = toMap(allData.approved);
+  const rejectedMap = toMap(allData.rejected);
+
+  const matchedData = dates.map(d => approvedMap[d] || 0);
+  // rejected dataset carries the stacked total (matched + rejected) so fill:'-1'
+  // paints only the gap between the two lines — areas never overlap
+  const totalData = dates.map(d => (approvedMap[d] || 0) + (rejectedMap[d] || 0));
+  const labels = dates.map(shortDayLabel);
+
+  const gridColor = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)';
+  const tickColor = dark ? '#555' : '#a1a1aa';
+
+  if (chartInstance) {
+    chartInstance.destroy();
+    chartInstance = null;
+  }
+
+  const ctx = document.getElementById('chart').getContext('2d');
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Matched',
+          data: matchedData,
+          fill: 'origin',
+          backgroundColor: 'rgba(74,222,128,0.4)',
+          borderColor: 'rgba(74,222,128,0.9)',
+          borderWidth: 2,
+          tension: 0.3,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          pointBackgroundColor: 'rgba(74,222,128,0.9)',
+          pointBorderWidth: 0,
+        },
+        {
+          label: 'Rejected',
+          data: totalData,
+          fill: '-1',
+          backgroundColor: 'rgba(248,113,113,0.4)',
+          borderColor: 'rgba(248,113,113,0.9)',
+          borderWidth: 2,
+          tension: 0.3,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          pointBackgroundColor: 'rgba(248,113,113,0.9)',
+          pointBorderWidth: 0,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: dark ? '#222' : '#fff',
+          titleColor: dark ? '#e0e0e0' : '#18181b',
+          bodyColor: dark ? '#b0b0b0' : '#3f3f46',
+          borderColor: dark ? '#2a2a2a' : '#d4d4d8',
+          borderWidth: 1,
+          padding: 10,
+          callbacks: {
+            label: ctx => {
+              // rejected dataset stores stacked total — show actual value
+              const actual = ctx.datasetIndex === 1
+                ? ctx.parsed.y - (ctx.chart.data.datasets[0].data[ctx.dataIndex] || 0)
+                : ctx.parsed.y;
+              return ` ${ctx.dataset.label}: ${actual}`;
+            },
+            footer: items => {
+              const total = items.at(-1)?.parsed.y || 0;
+              return total > 0 ? `Total: ${total}` : null;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: gridColor },
+          ticks: { color: tickColor, font: { size: 11 } },
+        },
+        y: {
+          grid: { color: gridColor },
+          ticks: { color: tickColor, font: { size: 11 }, precision: 0 },
+          beginAtZero: true,
+        },
+      },
+    },
+  });
+}
+
+function changeWeek(delta) {
+  weekOffset += delta;
+  renderChart();
+}
+
+async function load() {
+  try {
+    const res = await fetch('/api/stats');
+    if (!res.ok) throw new Error('Failed to load');
+    allData = await res.json();
+
+    document.getElementById('stat-scraped').textContent = allData.totals.scraped;
+    document.getElementById('stat-matched').textContent = allData.totals.matched;
+    document.getElementById('stat-rejected-llm').textContent = allData.totals.rejected_llm;
+    document.getElementById('stat-rejected-manual').textContent = allData.totals.rejected_manual;
+
+    const hasData = allData.approved.length > 0 || allData.rejected.length > 0;
+    if (!hasData) {
+      document.getElementById('chart-card').innerHTML =
+        '<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">No data yet.</div></div>';
+      return;
+    }
+
+    renderChart();
+  } catch (e) {
+    document.getElementById('chart-card').innerHTML =
+      `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">Failed to load stats.<br>${e.message}</div></div>`;
+  }
+}
+
+load();
+</script>
+</body>
+</html>

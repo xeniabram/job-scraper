@@ -456,3 +456,32 @@ class ResultsStorage:
             matched = conn.execute("SELECT COUNT(*) FROM matched_jobs").fetchone()[0]
             rejected = conn.execute("SELECT COUNT(*) FROM rejected_jobs").fetchone()[0]
         return {"matched": matched, "rejected": rejected, "total": matched + rejected}
+
+
+    def get_daily_stats(self) -> dict[str, Any]:
+        """Return per-day job counts and overall totals for the stats page."""
+        with self._connect() as conn:
+            new_rows = conn.execute(
+            "SELECT DATE(scraped_at) AS day, COUNT(*) AS count FROM jobs GROUP BY day ORDER BY day"
+                        ).fetchall()
+            approved_rows = conn.execute(
+            "SELECT DATE(matched_at) AS day, COUNT(*) AS count FROM matched_jobs GROUP BY day ORDER BY day"
+                        ).fetchall()
+            rejected_rows = conn.execute(
+            "SELECT DATE(rejected_at) AS day, COUNT(*) AS count FROM rejected_jobs GROUP BY day ORDER BY day"
+                        ).fetchall()
+            total_scraped = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+            total_matched = conn.execute("SELECT COUNT(*) FROM matched_jobs").fetchone()[0]
+            total_rejected_llm = conn.execute("SELECT COUNT(*) FROM rejected_jobs").fetchone()[0]
+            total_rejected_manual = conn.execute("SELECT COUNT(*) FROM rejected_manually").fetchone()[0]
+            return {
+            "new": [{"day": r["day"], "count": r["count"]} for r in new_rows],
+            "approved": [{"day": r["day"], "count": r["count"]} for r in approved_rows],
+            "rejected": [{"day": r["day"], "count": r["count"]} for r in rejected_rows],
+            "totals": {
+            "scraped": total_scraped,
+            "matched": total_matched,
+            "rejected_llm": total_rejected_llm,
+            "rejected_manual": total_rejected_manual,
+                        },
+                    } 

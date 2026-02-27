@@ -362,18 +362,6 @@ def cli() -> None:
         print("  Example: uv run job-scraper scrape --limit 20")
         sys.exit(1)
 
-    if args.command == "add":
-        from job_scraper.ui.add_job import run_add_job
-        run_add_job()
-        return
-
-    if args.command == "review":
-        if args.rejected:
-            from job_scraper.ui.rejected_review import run_rejected_review
-            run_rejected_review()
-        else:
-            from job_scraper.ui.review import run_review
-            run_review()
     asyncio.run(main(args))
 
 
