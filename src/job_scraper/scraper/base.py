@@ -38,8 +38,7 @@ class BaseScraper(ABC):
     })
     _param_type: type[BaseParams]
 
-    def __init__(self, delay: float, config: list[dict[str, Any]]) -> None:
-        self._delay = delay
+    def __init__(self, config: list[dict[str, Any]]) -> None:
         self._client: httpx.AsyncClient | None = None
         params = TypeAdapter(list[self._param_type]).validate_python(config)
         self._listing_urls = [p.build_listing_url() for p in params]

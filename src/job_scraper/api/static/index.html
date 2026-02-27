@@ -407,7 +407,8 @@ function run(endpoint, params = '') {
   status.textContent = `Running ${endpoint}…`;
   status.className = 'status running';
 
-  const ws = new WebSocket(`wss://${HOST}/${endpoint}${params}`);
+  const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${wsProto}//${HOST}/${endpoint}${params}`);
   ws.onmessage = e => {
     const line = document.createElement('span');
     line.className = 'line';

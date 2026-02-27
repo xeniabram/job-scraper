@@ -4,69 +4,15 @@ import dbm
 import hashlib
 import json
 import sqlite3
-from datetime import datetime
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 
 from loguru import logger
 
-from job_scraper.schema import JobData
-
-_DDL = """
-CREATE TABLE IF NOT EXISTS jobs (
-    url         TEXT PRIMARY KEY,
-    title       TEXT,
-    company     TEXT,
-    description TEXT,
-    scraped_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    filtered_at TEXT DEFAULT NULL
-);
-
-CREATE TABLE IF NOT EXISTS failed_jobs (
-    url        TEXT PRIMARY KEY,
-    failed_at  TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS matched_jobs (
-    url                    TEXT PRIMARY KEY,
-    title                  TEXT,
-    company                TEXT,
-    skillset_match_percent INTEGER,
-    matched_at             TEXT,
-    cv_about_me            TEXT,
-    cv_keywords            TEXT,
-    optimized_at           TEXT,
-    applied_at             TEXT
-);
-
-CREATE TABLE IF NOT EXISTS rejected_jobs (
-    url                    TEXT PRIMARY KEY,
-    role                   TEXT,
-    reason                 TEXT,
-    skillset_match_percent INTEGER,
-    rejected_at            TEXT
-);
-
-CREATE TABLE IF NOT EXISTS rejected_manually (
-    url                    TEXT PRIMARY KEY,
-    title                  TEXT,
-    company                TEXT,
-    skillset_match_percent INTEGER,
-    reason                 TEXT,
-    rejected_at            TEXT
-);
-
-CREATE TABLE IF NOT EXISTS learn (
-    url                    TEXT PRIMARY KEY,
-    title                  TEXT,
-    company                TEXT,
-    reason                 TEXT,
-    user_note              TEXT,
-    correct_label          TEXT,
-    skillset_match_percent INTEGER,
-    reviewed_at            TEXT
-);
-"""
+from job_scraper.exceptions import JobNotFound
+from job_scraper.llm.filter import CvOptimized
+from job_scraper.schema import DailyStatEntry, DailyStats, JobData, MatchedJob, RejectedJob
+from job_scraper.storage.DDL import _DDL
 
 
 class UrlCache:
@@ -111,377 +57,291 @@ class ResultsStorage:
     # Infrastructure
     # ------------------------------------------------------------------
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self):
         conn = sqlite3.connect(self._db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         with self._connect() as conn:
             conn.executescript(_DDL)
+            # Add scraped_at to existing tables that pre-date this column.
+            for table in ("jobs", "matched", "rejected"):
+                cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+                if "scraped_at" not in cols:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN scraped_at TEXT")
 
-    def _row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
-        d = dict(row)
-        raw = d.get("description")
-        d["description"] = json.loads(raw) if raw else {}
-        return d
+    def _update_daily(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        date: str,
+        scraped: int = 0,
+        matched: int = 0,
+        rejected: int = 0,
+    ) -> None:
+        """Upsert the row for *date* in daily_stats and apply the given deltas.
+
+        Uses the job's scraped_at date so that reviewing a job scraped yesterday
+        adjusts yesterday's counters, not today's.
+        Runs inside the caller's transaction so the update is atomic with the data mutation.
+        """
+        conn.execute(
+            "INSERT INTO daily_stats (date, scraped, matched, rejected)"
+            " VALUES (?, 0, 0, 0)"
+            " ON CONFLICT(date) DO NOTHING",
+            (date,),
+        )
+        conn.execute(
+            "UPDATE daily_stats"
+            " SET scraped = scraped + ?, matched = matched + ?, rejected = rejected + ?"
+            " WHERE date = ?",
+            (scraped, matched, rejected, date),
+        )
 
     # ------------------------------------------------------------------
     # Scraping queue
     # ------------------------------------------------------------------
 
-    def save_job(self, job_data: JobData) -> None:
-        """Insert a scraped job. Skips if URL already in cache."""
+    def save_job(self, job_data: JobData, source: str = "") -> None:
+        """Insert a scraped job into the queue and increment today's scraped count.
+
+        No-ops silently if the URL was already seen. The URL cache is updated only
+        after the transaction commits so a failed write never poisons the cache.
+        """
         url = job_data.url
-        if url in self.url_cache:
-            logger.debug(f"URL already seen, skipping: {url}")
-            return
         with self._connect() as conn:
+            today = conn.execute("SELECT date('now')").fetchone()[0]
             conn.execute(
-                "INSERT OR IGNORE INTO jobs (url, title, company, description)"
-                " VALUES (?, ?, ?, ?)",
-                job_data.row,
+                "INSERT INTO jobs (url, title, company, description, source, scraped_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (*job_data.row, source, today),
             )
+            self._update_daily(conn, date=today, scraped=1)
         self.url_cache.add(url)
-        logger.info(f"Saved scraped job: {job_data.title or url}")
+        logger.info(f"Saved scraped job: {job_data.title}")
 
-    def load_pending_jobs(self) -> list[JobData]:
-        """Return jobs that have not been filtered yet."""
+    def load_pending_jobs(self, limit: int | None) -> list[JobData]:
+        """Return all jobs in the scraping queue that have not been filtered yet."""
         with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM jobs WHERE filtered_at IS NULL").fetchall()
-        return [JobData(**self._row_to_dict(r)) for r in rows]
-
-    def load_all_jobs(self) -> list[JobData]:
-        """Return all jobs regardless of filtered status."""
-        with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM jobs").fetchall()
-        return [JobData(**self._row_to_dict(r)) for r in rows]
-
-    def mark_processed(self, url: str) -> None:
-        """Stamp filtered_at on a job."""
-        with self._connect() as conn:
-            conn.execute(
-                "UPDATE jobs SET filtered_at = ? WHERE url = ?",
-                (datetime.now().isoformat(), url),
-            )
-
-    def reset_processed(self) -> int:
-        """Clear filtered_at on all jobs so they can be reprocessed. Returns count reset."""
-        with self._connect() as conn:
-            cur = conn.execute("UPDATE jobs SET filtered_at = NULL WHERE filtered_at IS NOT NULL")
-        return cur.rowcount
+            stmt = "SELECT url, title, company, description FROM jobs"
+            if limit:
+                stmt += f" LIMIT {limit}"
+            rows = conn.execute(stmt).fetchall()
+        return [JobData.model_validate(dict(r)) for r in rows]
 
     def pending_count(self) -> int:
-        """Return number of jobs not yet filtered."""
+        """Return number of jobs in the scraping queue waiting to be filtered."""
         with self._connect() as conn:
-            row = conn.execute("SELECT COUNT(*) FROM jobs WHERE filtered_at IS NULL").fetchone()
+            row = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()
         return row[0]
-
-    def get_scraped_details(self, url: str) -> dict[str, Any]:
-        """Fetch scraped details for a URL from the jobs table."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT company, description FROM jobs WHERE url = ?",
-                (url,),
-            ).fetchone()
-        if not row:
-            return {}
-        desc = json.loads(row["description"] or "{}") if row["description"] else {}
-        return {"company": row["company"] or "", **desc}
 
     # ------------------------------------------------------------------
     # Filter results
     # ------------------------------------------------------------------
 
-    async def save_matched_job(
+    def save_matched_job(
         self,
-        url: str,
-        title: str = "",
-        company: str = "",
-        skillset_match_percent: int = 0,
-        cv: dict[str, str] | None = None,
+        job: JobData,
+        cv: CvOptimized | None,
+        match_pct: int = 0,
     ) -> None:
-        """Insert or replace a matched job with optional optimized CV sections."""
-        cv = cv or {}
-        with self._connect() as conn:
-            if company and title:
-                count = conn.execute(
-                    "SELECT COUNT(*) FROM matched_jobs WHERE LOWER(company) = LOWER(?) AND LOWER(title) = LOWER(?)",
-                    (company, title),
-                ).fetchone()[0]
-                if count:
-                    logger.warning(
-                        f"Duplicate detected (company+title match), skipping: '{company}' / '{title}' ({url})"
-                    )
-                    return
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO matched_jobs
-                  (url, title, company, skillset_match_percent, matched_at, cv_about_me, cv_keywords)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (url, title, company, skillset_match_percent, datetime.now().isoformat(),
-                 cv.get("about_me", ""), cv.get("keywords", "")),
-            )
-        logger.info(f"Saved matched job: {title or url}")
+        """Move a job from the scraping queue to matched and increment today's matched count.
 
-    async def save_rejected_job(
+        cv may be None when CV optimization is skipped; cv_about and cv_keywords are then
+        stored as NULL and can be filled later via update_cv().
+        """
+        cv_about = cv.about_me if cv is not None else None
+        cv_keywords = cv.keywords if cv is not None else None
+        with self._connect() as conn:
+            scraped_row = conn.execute("SELECT scraped_at FROM jobs WHERE url = ?", (job.url,)).fetchone()
+            scraped_at = (scraped_row[0] if scraped_row and scraped_row[0]
+                          else conn.execute("SELECT date('now')").fetchone()[0])
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO matched"
+                " (url, title, company, description, match_pct, cv_about, cv_keywords, scraped_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (job.url, job.title, job.company, json.dumps(job.description),
+                 match_pct, cv_about, cv_keywords, scraped_at),
+            )
+            conn.execute("DELETE FROM jobs WHERE url = ?", (job.url,))
+            if cursor.rowcount > 0:
+                self._update_daily(conn, date=scraped_at, matched=1)
+        logger.info(f"Saved matched job: {job.title}")
+
+    def save_rejected_job(
         self,
-        url: str,
-        role: str = "",
+        job: JobData,
+        match_pct: int = 0,
         reason: str = "",
-        skillset_match_percent: int = 0,
     ) -> None:
-        """Insert or replace a rejected job."""
+        """Move a job from the scraping queue to rejected and increment today's rejected count."""
         with self._connect() as conn:
+            scraped_row = conn.execute("SELECT scraped_at FROM jobs WHERE url = ?", (job.url,)).fetchone()
+            scraped_at = (scraped_row[0] if scraped_row and scraped_row[0]
+                          else conn.execute("SELECT date('now')").fetchone()[0])
             conn.execute(
-                """
-                INSERT OR REPLACE INTO rejected_jobs
-                  (url, role, reason, skillset_match_percent, rejected_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (url, role, reason, skillset_match_percent, datetime.now().isoformat()),
+                "INSERT INTO rejected (url, title, company, description, match_pct, reason, scraped_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (*job.row, match_pct, reason, scraped_at),
             )
-        logger.debug(f"Saved rejected job: {url}")
+            conn.execute("DELETE FROM jobs WHERE url = ?", (job.url,))
+            self._update_daily(conn, date=scraped_at, rejected=1)
+        logger.debug(f"Saved rejected job: {job.url}")
 
-    async def save_matched_and_mark_processed(
-        self,
-        url: str,
-        title: str = "",
-        company: str = "",
-        skillset_match_percent: int = 0,
-        cv: dict[str, str] | None = None,
-    ) -> None:
-        """Insert matched job and stamp filtered_at in one transaction."""
-        cv = cv or {}
-        now = datetime.now().isoformat()
+    # ------------------------------------------------------------------
+    # Matched jobs
+    # ------------------------------------------------------------------
+
+    def load_unoptimized_matched(self, limit: int | None) -> list[MatchedJob]:
+        """Return matched jobs whose CV sections (cv_about/cv_keywords) are still NULL."""
         with self._connect() as conn:
-            if company and title:
-                count = conn.execute(
-                    "SELECT COUNT(*) FROM matched_jobs WHERE LOWER(company) = LOWER(?) AND LOWER(title) = LOWER(?)",
-                    (company, title),
-                ).fetchone()[0]
-                if count:
-                    logger.warning(
-                        f"Duplicate detected (company+title match), skipping: '{company}' / '{title}' ({url})"
-                    )
-                    conn.execute(
-                        "UPDATE jobs SET filtered_at = ? WHERE url = ?",
-                        (now, url),
-                    )
-                    return
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO matched_jobs
-                  (url, title, company, skillset_match_percent, matched_at, cv_about_me, cv_keywords)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (url, title, company, skillset_match_percent, now,
-                 cv.get("about_me", ""), cv.get("keywords", "")),
-            )
-            conn.execute(
-                "UPDATE jobs SET filtered_at = ? WHERE url = ?",
-                (now, url),
-            )
-        logger.info(f"Saved matched job: {title or url}")
+            stmt = "SELECT * FROM matched WHERE cv_about IS NULL AND cv_keywords IS NULL"
+            if limit is not None:
+                stmt += f" LIMIT {limit}"
+            rows = conn.execute(stmt).fetchall()
+        return [MatchedJob.model_validate(dict(r)) for r in rows]
 
-    async def save_rejected_and_mark_processed(
-        self,
-        url: str,
-        role: str = "",
-        reason: str = "",
-        skillset_match_percent: int = 0,
-    ) -> None:
-        """Insert rejected job and stamp filtered_at in one transaction."""
-        now = datetime.now().isoformat()
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO rejected_jobs
-                  (url, role, reason, skillset_match_percent, rejected_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (url, role, reason, skillset_match_percent, now),
-            )
-            conn.execute(
-                "UPDATE jobs SET filtered_at = ? WHERE url = ?",
-                (now, url),
-            )
-        logger.debug(f"Saved rejected job: {url}")
-
-    def load_unoptimized_matched_urls(self) -> list[str]:
-        """Return URLs of matched jobs that have not been CV-optimized yet."""
+    def load_optimized_matched(self) -> list[MatchedJob]:
+        """Return matched jobs that have CV sections filled in and are ready to apply to."""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT url FROM matched_jobs WHERE optimized_at IS NULL"
+                "SELECT * FROM matched WHERE cv_about IS NOT NULL AND cv_keywords IS NOT NULL"
             ).fetchall()
-        return [row["url"] for row in rows]
+        return [MatchedJob.model_validate(dict(r)) for r in rows]
 
-    def update_cv(self, url: str, about_me: str, keywords: str) -> None:
-        """Write optimized CV sections and stamp optimized_at."""
-        with self._connect() as conn:
-            conn.execute(
-                """
-                UPDATE matched_jobs
-                SET cv_about_me = ?, cv_keywords = ?, optimized_at = ?
-                WHERE url = ?
-                """,
-                (about_me, keywords, datetime.now().isoformat(), url),
-            )
-
-    def load_unapplied_matched(self) -> list[dict[str, Any]]:
-        """Return matched jobs that have not been marked as applied."""
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM matched_jobs WHERE applied_at IS NULL ORDER BY matched_at"
-            ).fetchall()
-        return [dict(r) for r in rows]
-
-    def load_unapplied_matched_count(self) -> int:
-        """Return matched jobs that have not been marked as applied."""
+    def count_optimized_matched(self) -> int:
+        """Return number of matched jobs with CV sections filled in."""
         with self._connect() as conn:
             res = conn.execute(
-                "SELECT COUNT(*) FROM matched_jobs WHERE applied_at IS NULL ORDER BY matched_at"
+                "SELECT COUNT(*) FROM matched WHERE cv_about IS NOT NULL AND cv_keywords IS NOT NULL"
             ).fetchone()
         return res[0] if res else 0
 
-    def mark_applied(self, url: str) -> None:
-        """Stamp applied_at on a matched job."""
+    def update_cv(self, url: str, about: str, keywords: str) -> None:
+        """Write optimized CV sections to a matched job."""
         with self._connect() as conn:
             conn.execute(
-                "UPDATE matched_jobs SET applied_at = ? WHERE url = ?",
-                (datetime.now().isoformat(), url),
+                "UPDATE matched SET cv_about = ?, cv_keywords = ? WHERE url = ?",
+                (about, keywords, url),
             )
 
-    def reject_manually(self, url: str, reason: str) -> None:
-        """Move a matched job to rejected_manually + learn, delete from matched_jobs."""
-        now = datetime.now().isoformat()
+    def mark_applied(self, url: str) -> None:
+        """Delete a matched job after the user applies to it.
+
+        Raises JobNotFound if the URL is not in the matched table.
+        """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT title, company, skillset_match_percent FROM matched_jobs WHERE url = ?",
-                (url,),
+                "SELECT title, company FROM matched WHERE url = ?", (url,)
             ).fetchone()
-            title = row["title"] if row else ""
-            company = row["company"] if row else ""
-            pct = row["skillset_match_percent"] if row else 0
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO rejected_manually
-                  (url, title, company, skillset_match_percent, reason, rejected_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (url, title, company, pct, reason, now),
-            )
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO learn
-                  (url, title, company, reason, correct_label, skillset_match_percent, reviewed_at)
-                VALUES (?, ?, ?, ?, 'rejected', ?, ?)
-                """,
-                (url, title, company, reason, pct, now),
-            )
-            conn.execute("DELETE FROM matched_jobs WHERE url = ?", (url,))
+            if not row:
+                raise JobNotFound("matched job not found")
+            conn.execute("DELETE FROM matched WHERE url = ?", (url,))
 
-    def load_unreviewed_rejected(self) -> list[dict[str, Any]]:
-        """Return LLM-rejected jobs not yet in the learn table, newest first."""
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT rj.url, COALESCE(rj.role, j.title) AS role,
-                       rj.reason, rj.skillset_match_percent, rj.rejected_at
-                FROM rejected_jobs rj
-                LEFT JOIN jobs j ON rj.url = j.url
-                WHERE rj.url NOT IN (SELECT url FROM learn)
-                ORDER BY rj.rejected_at DESC
-                """
-            ).fetchall()
-        return [dict(r) for r in rows]
+    # ------------------------------------------------------------------
+    # Rejected review
+    # ------------------------------------------------------------------
 
-    def promote_to_matched(
-        self,
-        url: str,
-        title: str,
-        company: str,
-        llm_reason: str,
-        user_note: str,
-        skillset_match_percent: int,
-    ) -> None:
-        """Insert into matched_jobs and record in learn as correctly matched."""
-        now = datetime.now().isoformat()
+    def load_unreviewed_rejected(self) -> list[RejectedJob]:
+        """Return all LLM-rejected jobs awaiting user review."""
         with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM rejected").fetchall()
+        return [RejectedJob.model_validate(dict(r)) for r in rows]
+
+    def reject_manually(self, url: str, user_reason: str) -> None:
+        """Override the LLM's match: the user says this job is not relevant.
+
+        Removes the job from matched, records the correction in learn with
+        correct_label='rejected', and updates today's stats (matched -1, rejected +1).
+        Raises JobNotFound if the URL is not in the matched table.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT title, company, match_pct, scraped_at FROM matched WHERE url = ?", (url,)
+            ).fetchone()
+            if not row:
+                raise JobNotFound("matched job not found")
+            title, company, match_pct, scraped_at = row
+            stats_date = scraped_at or conn.execute("SELECT date('now')").fetchone()[0]
+            conn.execute("DELETE FROM matched WHERE url = ?", (url,))
             conn.execute(
-                """
-                INSERT OR REPLACE INTO matched_jobs
-                  (url, title, company, skillset_match_percent, matched_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (url, title, company, skillset_match_percent, now),
+                "INSERT OR REPLACE INTO learn"
+                " (url, title, company, match_pct, reason, user_note, correct_label)"
+                " VALUES (?, ?, ?, ?, ?, NULL, 'rejected')",
+                (url, title, company, match_pct, user_reason),
             )
+            self._update_daily(conn, date=stats_date, matched=-1, rejected=1)
+
+    def confirm_rejection(self, url: str) -> None:
+        """Confirm the LLM's rejection: the user agrees the job is not relevant.
+
+        Simply removes the job from rejected. No learn entry is written because
+        the LLM was correct. Raises JobNotFound if the URL is not in the rejected table.
+        """
+        with self._connect() as conn:
+            row = conn.execute("SELECT url FROM rejected WHERE url = ?", (url,)).fetchone()
+            if not row:
+                raise JobNotFound("rejected job not found")
+            conn.execute("DELETE FROM rejected WHERE url = ?", (url,))
+
+    def promote_to_matched(self, url: str, user_note: str = "") -> None:
+        """Override the LLM's rejection: the user says this job is relevant.
+
+        Moves the job from rejected to matched, records the correction in learn with
+        correct_label='matched', and updates today's stats (matched +1, rejected -1).
+        Raises JobNotFound if the URL is not in the rejected table.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT title, company, description, match_pct, reason, scraped_at FROM rejected WHERE url = ?", (url,)
+            ).fetchone()
+            if not row:
+                raise JobNotFound("rejected job not found")
+            title, company, description, match_pct, reason, scraped_at = row
+            stats_date = scraped_at or conn.execute("SELECT date('now')").fetchone()[0]
+
             conn.execute(
-                """
-                INSERT OR REPLACE INTO learn
-                  (url, title, company, reason, user_note, correct_label, skillset_match_percent, reviewed_at)
-                VALUES (?, ?, ?, ?, ?, 'matched', ?, ?)
-                """,
-                (url, title, company, llm_reason, user_note, skillset_match_percent, now),
+                "INSERT OR REPLACE INTO matched"
+                " (url, title, company, description, match_pct, scraped_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (url, title, company, description, match_pct, scraped_at),
             )
+            conn.execute("DELETE FROM rejected WHERE url = ?", (url,))
+            conn.execute(
+                "INSERT OR REPLACE INTO learn"
+                " (url, title, company, match_pct, reason, user_note, correct_label)"
+                " VALUES (?, ?, ?, ?, ?, ?, 'matched')",
+                (url, title, company, match_pct, reason, user_note),
+            )
+            self._update_daily(conn, date=stats_date, matched=1, rejected=-1)
         logger.info(f"Promoted incorrectly-rejected to matched: {title or url}")
 
-    def save_to_learn(
-        self,
-        url: str,
-        title: str,
-        company: str,
-        reason: str,
-        correct_label: str,
-        skillset_match_percent: int,
-        user_note: str = "",
-    ) -> None:
-        """Insert or replace a labeled training example in the learn table."""
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO learn
-                  (url, title, company, reason, user_note, correct_label, skillset_match_percent, reviewed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (url, title, company, reason, user_note, correct_label,
-                 skillset_match_percent, datetime.now().isoformat()),
-            )
-        logger.debug(f"Saved to learn ({correct_label}): {url}")
+    # ------------------------------------------------------------------
+    # Analytics
+    # ------------------------------------------------------------------
 
-    def get_stats(self) -> dict[str, Any]:
-        """Return matched/rejected counts."""
+    def get_daily_stats(self) -> DailyStats:
+        """Return per-day scraped/matched/rejected counts and overall totals."""
         with self._connect() as conn:
-            matched = conn.execute("SELECT COUNT(*) FROM matched_jobs").fetchone()[0]
-            rejected = conn.execute("SELECT COUNT(*) FROM rejected_jobs").fetchone()[0]
-        return {"matched": matched, "rejected": rejected, "total": matched + rejected}
-
-
-    def get_daily_stats(self) -> dict[str, Any]:
-        """Return per-day job counts and overall totals for the stats page."""
-        with self._connect() as conn:
-            new_rows = conn.execute(
-            "SELECT DATE(scraped_at) AS day, COUNT(*) AS count FROM jobs GROUP BY day ORDER BY day"
-                        ).fetchall()
-            approved_rows = conn.execute(
-            "SELECT DATE(matched_at) AS day, COUNT(*) AS count FROM matched_jobs GROUP BY day ORDER BY day"
-                        ).fetchall()
-            rejected_rows = conn.execute(
-            "SELECT DATE(rejected_at) AS day, COUNT(*) AS count FROM rejected_jobs GROUP BY day ORDER BY day"
-                        ).fetchall()
-            total_scraped = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-            total_matched = conn.execute("SELECT COUNT(*) FROM matched_jobs").fetchone()[0]
-            total_rejected_llm = conn.execute("SELECT COUNT(*) FROM rejected_jobs").fetchone()[0]
-            total_rejected_manual = conn.execute("SELECT COUNT(*) FROM rejected_manually").fetchone()[0]
-            return {
-            "new": [{"day": r["day"], "count": r["count"]} for r in new_rows],
-            "approved": [{"day": r["day"], "count": r["count"]} for r in approved_rows],
-            "rejected": [{"day": r["day"], "count": r["count"]} for r in rejected_rows],
-            "totals": {
-            "scraped": total_scraped,
-            "matched": total_matched,
-            "rejected_llm": total_rejected_llm,
-            "rejected_manual": total_rejected_manual,
-                        },
-                    } 
+            rows = conn.execute(
+                "SELECT date, scraped, matched, rejected FROM daily_stats ORDER BY date DESC"
+            ).fetchall()
+        daily = [
+            DailyStatEntry(date=r["date"], scraped=r["scraped"], matched=r["matched"], rejected=r["rejected"])
+            for r in rows
+        ]
+        totals = DailyStatEntry(
+            date="",
+            scraped=sum(e.scraped for e in daily),
+            matched=sum(e.matched for e in daily),
+            rejected=sum(e.rejected for e in daily),
+        )
+        return DailyStats(daily=daily, totals=totals)
