@@ -129,7 +129,6 @@ async def scrape_main(
 
 async def filter_main(limit: int | None = None) -> None:
     """Filter + optimize phase: read SQLite queue, send to LLM, remove from queue."""
-    limit = 1
     config = settings.load_config()
 
     results = ResultsStorage(settings.data_dir)
@@ -152,7 +151,6 @@ async def filter_main(limit: int | None = None) -> None:
 
     total = len(pending_jobs)
     logger.info(f"Filtering {total} jobs...")
-    await asyncio.sleep(10)
 
     matched_count = 0
     rejected_count = 0
@@ -173,9 +171,6 @@ async def filter_main(limit: int | None = None) -> None:
                     match_pct=filter_result.skillset_match_percent,
                 )
                 matched_count += 1
-                logger.success(
-                    f"MATCHED: {job_data.title} (skillset: {filter_result.skillset_match_percent}%)"
-                )
             else:
                 results.save_rejected_job(
                     job=job_data,
@@ -183,9 +178,6 @@ async def filter_main(limit: int | None = None) -> None:
                     reason=filter_result.reason,
                 )
                 rejected_count += 1
-            logger.success(
-                f"MATCHED: {job_data.title} (skillset: {99}%)"
-            )
 
     await asyncio.gather(*(filter_one(job_data, i + 1) for i, job_data in enumerate(pending_jobs)))
 
