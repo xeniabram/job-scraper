@@ -1,0 +1,6 @@
+{
+  "python.analysis.exclude": [
+    "tests/fixtures/**",
+    ".venv"
+  ]
+}

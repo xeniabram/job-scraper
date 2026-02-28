@@ -1,5 +1,4 @@
-"""Local scraper
-"""
+"""Local scraper — reads job JSON files from disk instead of fetching from the web."""
 import json
 from collections.abc import Generator
 from pathlib import Path
@@ -15,19 +14,15 @@ class Params(BaseParams):
     path: Path
 
     def build_listing_url(self) -> str:
-        """Build the listing URL for this set of params."""
         return str(self.path)
 
+
 class LocalScraper(BaseScraper):
-    """Job board scraper for justjoin.it — no browser required.
-    Uses httpx.AsyncClient to fetch pages, then extracts job data
-    Adheres to robots.txt: /api/ is never accessed.
-    """
+    """Reads job data from local JSON files instead of fetching from a live job board."""
     _param_type = Params
 
     async def _get(self, url: str) -> str:
-        """ _get stub to conform to base class"""
-        return url
+        return Path(url).read_text(encoding="utf-8-sig")
     
     async def __aenter__(self) -> Self:
         return self
@@ -39,13 +34,10 @@ class LocalScraper(BaseScraper):
                     file.unlink()
             logger.info("Cleaned up processed job files")
 
-    @staticmethod
-    def _extract_job_urls(source: str) -> Generator[str]:
-        """Extract job URLs from a class collection-card"""
+    def _extract_job_urls(self, source: str) -> Generator[str]:
+        """Yield file paths for all .json files in the directory."""
         for file in Path(source).glob("*.json"):
             yield str(file)
-    
+
     def _extract_job_data(self, job_url: str, source: str) -> JobData:
-        with open(job_url, encoding="utf-8-sig") as file:
-            json_str = file.read()
-        return JobData.model_validate(json.loads(json_str))
+        return JobData.model_validate(json.loads(source))

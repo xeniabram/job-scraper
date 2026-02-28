@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     openai_api_key: str = Field(default="", description="OpenAI API key")
     openai_model: str = Field(default="gpt-4o-mini", description="OpenAI model to use")
 
+    # Sentry
+    sentry_dsn: str = Field(default="", description="Sentry DSN — empty string disables Sentry")
+    sentry_environment: str = Field(default="development", description="Sentry environment tag (e.g. production, development)")
+
     # Paths
     saved_jobs_dir: Path
     config_file: Path = Field(default=Path("config.yaml"), description="Path to config file")

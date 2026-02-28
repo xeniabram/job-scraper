@@ -1,21 +1,24 @@
-from collections.abc import Generator, Iterable
+"""NoFluffJobs scraper — pure HTTP implementation."""
+import urllib.parse
+from collections.abc import Generator
 from typing import Annotated, Literal
 
 from bs4 import BeautifulSoup
 from loguru import logger
 from pydantic import Field, PlainSerializer
 
+from job_scraper.exceptions import SourceParsingError
 from job_scraper.schema import JobData
 from job_scraper.scraper.base import BaseParams, BaseScraper
 
 BASE_URL = "https://nofluffjobs.com"
 
-def serialize_joined(input: set[str] | list[str] | str) -> str:
-    if not input:
-        return ""
-    if isinstance(input, Iterable) and not isinstance(input, str):
-        return ",".join(input)
-    return str(input)
+
+def _join_items(data: set[str] | list[str] | str) -> str:
+    if isinstance(data, str):
+        return data
+    return ",".join(data)
+
 
 TechLiteral = set[Literal[
     "Java", "Python", "C#", "SQL", "C++", "Golang",
@@ -33,9 +36,7 @@ SeniorityLiteral = set[Literal["trainee", "junior", "mid", "senior", "expert"]]
 
 EmploymentLiteral = set[Literal["permanent", "zlecenie", "b2b", "uod", "intern"]]
 
-WorkModeLiteral = set[Literal["remote", "hybrid", "fieldwork"]]
-
-JobLanguageLiteral = set[Literal["pl", "en"]]
+WorkModeLiteral = set[Literal["praca-zdalna", "hybrid", "fieldwork"]]
 
 
 # ── Params model ──────────────────────────────────────────────────────────────
@@ -43,35 +44,34 @@ JobLanguageLiteral = set[Literal["pl", "en"]]
 class Params(BaseParams):
     requirement: Annotated[
         TechLiteral | None,
-        PlainSerializer(serialize_joined, when_used="unless-none"),
+        PlainSerializer(_join_items, when_used="unless-none"),
     ] = None
 
     category: Annotated[
         CategoryLiteral | None,
-        PlainSerializer(serialize_joined, when_used="unless-none"),
+        PlainSerializer(_join_items, when_used="unless-none"),
     ] = None
 
     seniority: Annotated[
         SeniorityLiteral | None,
-        PlainSerializer(serialize_joined, when_used="unless-none"),
+        PlainSerializer(_join_items, when_used="unless-none"),
     ] = None
 
     employment: Annotated[
         EmploymentLiteral | None,
-        PlainSerializer(serialize_joined, when_used="unless-none")
-    ]
+        PlainSerializer(_join_items, when_used="unless-none")
+    ] = None
 
     city: Annotated[
-        list[Literal["praca-zdalna", "hybrid", "fieldwork"] | str],
-        PlainSerializer(serialize_joined)] = Field(default_factory=lambda: ["praca-zdalna"])
+        list[WorkModeLiteral | str],
+        PlainSerializer(_join_items)] = Field(default_factory=lambda: ["praca-zdalna"])
 
 
     @property
     def query_params(self) -> str:
-        import urllib.parse
         data = self.model_dump()
         params = " ".join(f"{k}={v}" for k, v in data.items() if v is not None)
-        return f"criteria={urllib.parse.quote(params, safe=",")}"
+        return f"criteria={urllib.parse.quote(params, safe=',')}"
 
     def build_listing_url(self) -> str:
         if p := self.query_params:
@@ -81,19 +81,16 @@ class Params(BaseParams):
 
 
 class NoFluffScraper(BaseScraper):
-    """Scraper for theprotocol.it using HTTP requests + HTML parsing."""
+    """Scraper for nofluffjobs.com using HTTP requests + HTML parsing."""
     _param_type = Params
 
-    @staticmethod
-    def _extract_job_urls(
-        source: str
-    ) -> Generator[str]:
+    def _extract_job_urls(self, source: str) -> Generator[str]:
         soup = BeautifulSoup(source, "html.parser")
         for card in soup.select("a.posting-list-item"):
             yield BASE_URL + str(card["href"])
 
     def _extract_job_data(self, job_url: str, source: str) -> JobData:
-        """Fetch a job detail page and extract structured data."""
+        """Parse a job detail page and return structured data."""
         soup = BeautifulSoup(source, "html.parser")
 
         title_tag = soup.select_one("h1")
@@ -131,15 +128,16 @@ class NoFluffScraper(BaseScraper):
         resp_section = soup.select_one("#posting-description nfj-read-more div")
         responsibilities = resp_section.get_text(separator="\n", strip=True) if resp_section else None
 
-        if not title and not technologies and not requirements:
-            logger.warning(f"No data extracted from {job_url}")
+        if not title or not company or not requirements:
+            raise SourceParsingError(f"Failed to extract data from {job_url}")
+
 
         logger.info(f"Viewed: {title or 'Unknown'} @ {company or 'Unknown'}")
         return JobData(
             url=job_url,
             title=title,
             company=company,
-            description= {
+            description={
                 "location": location,
                 "seniority": seniority,
                 "work_mode": work_mode,
@@ -147,5 +145,6 @@ class NoFluffScraper(BaseScraper):
                 "technologies_optional": technologies_optional,
                 "requirements": requirements,
                 "responsibilities": responsibilities,
+                "salaries&contracts": salaries
                 }
         )
