@@ -82,7 +82,7 @@ def _write_summary(summary_path: str, scraper_name: str, url: str, job: JobData)
         preview = value[:150].replace("\n", " ")
         if len(value) > 150:
             full = value.replace("\n", " ")
-            lines.append(f"<details><summary><strong>{key}:</strong>: {preview}…</summary>\n\n{full}\n\n</details>\n")
+            lines.append(f"<details><summary><strong>{key}</strong>: {preview}…</summary>\n\n{full}\n\n</details>\n")
         else:
             lines.append(f"**{key}:** {preview}  ")
 
