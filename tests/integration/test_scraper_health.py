@@ -1,19 +1,14 @@
 """Live HTTP health checks — verify each scraper can fetch and parse real data.
 
 Run manually or on a schedule:
-    pytest -m integration -s
+    pytest -m integration
 
-Each test prints the full parsed job to stdout for manual review.
-In CI (GitHub Actions), results are also saved to tests/integration/results/ and
-uploaded as workflow artifacts so you can review them over time.
+In CI (GitHub Actions), results are written to the job summary for inline review.
 Sentry Cron Monitors track OK/error status per scraper (when SENTRY_DSN is set).
 Monitors are auto-created in Sentry with a 3-day interval schedule.
 """
 
-import json
 import os
-from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 import sentry_sdk
@@ -22,8 +17,6 @@ from job_scraper.schema import JobData
 from job_scraper.scraper.justjoinit_scraper import JustJoinItScraper
 from job_scraper.scraper.nofluff_scraper import NoFluffScraper
 from job_scraper.scraper.protocol_scraper import ProtocolScraper
-
-RESULTS_DIR = Path(__file__).parent / "results"
 
 SCRAPERS = [
     (
@@ -71,26 +64,30 @@ async def test_scraper_fetches_and_parses_one_job(scraper_cls, config):
         assert job.company, f"{scraper_cls.__name__}: job company is empty"
         assert any(job.description.values()), f"{scraper_cls.__name__}: job description is entirely empty"
 
-    if os.environ.get("CI"):
-        _save_result(name, scraper_cls.__name__, urls[0], job)
+    if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+        _write_summary(summary, scraper_cls.__name__, urls[0], job)
 
 
-def _save_result(name: str, scraper_name: str, url: str, job: JobData) -> None:
-    result_dir = RESULTS_DIR / name
-    result_dir.mkdir(parents=True, exist_ok=True)
+def _write_summary(summary_path: str, scraper_name: str, url: str, job: JobData) -> None:
+    lines = [
+        f"## {scraper_name}",
+        f"**{job.title}** @ {job.company}  ",
+        f"[{url}]({url})",
+        "",
+    ]
+    for key, value in job.description.items():
+        if not value:
+            continue
+        if isinstance(value, str):
+            # truncate long text fields to keep the summary readable
+            preview = value[:300].replace("\n", " ")
+            if len(value) > 300:
+                preview += "…"
+            lines.append(f"**{key}:** {preview}  ")
+        else:
+            lines.append(f"**{key}:** {value!r}  ")
 
-    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    result_file = result_dir / f"{timestamp}.json"
-    result_file.write_text(
-        json.dumps(
-            {
-                "timestamp": datetime.now(UTC).isoformat(),
-                "scraper": scraper_name,
-                "url": str(url),
-                "job": json.loads(job.model_dump_json()),
-            },
-            indent=2,
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
+    lines.append("")
+
+    with open(summary_path, "a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")

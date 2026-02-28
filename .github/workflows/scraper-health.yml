@@ -25,10 +25,3 @@ jobs:
           SENTRY_ENVIRONMENT: production
           SAVED_JOBS_DIR: /tmp/jobs  # required by Settings, unused in integration tests
 
-      - name: Upload results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: scraper-health-${{ github.run_id }}
-          path: tests/integration/results/
-          retention-days: 90
