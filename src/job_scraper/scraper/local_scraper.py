@@ -22,7 +22,10 @@ class LocalScraper(BaseScraper):
     _param_type = Params
 
     async def _get(self, url: str) -> str:
-        return Path(url).read_text(encoding="utf-8-sig")
+        path = Path(url)
+        if path.is_dir():
+            return url  # passthrough: _extract_job_urls will glob it
+        return path.read_text(encoding="utf-8-sig")
     
     async def __aenter__(self) -> Self:
         return self

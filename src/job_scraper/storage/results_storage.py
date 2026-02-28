@@ -120,13 +120,15 @@ class ResultsStorage:
         url = job_data.url
         with self._connect() as conn:
             today = conn.execute("SELECT date('now')").fetchone()[0]
-            conn.execute(
-                "INSERT INTO jobs (url, title, company, description, source, scraped_at)"
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO jobs (url, title, company, description, source, scraped_at)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 (*job_data.row, source, today),
             )
+            if cursor.rowcount == 0:
+                return
             self._update_daily(conn, date=today, scraped=1)
-        self.url_cache.add(url)
+            self.url_cache.add(url)
         logger.info(f"Saved scraped job: {job_data.title}")
 
     def load_pending_jobs(self, limit: int | None) -> list[JobData]:

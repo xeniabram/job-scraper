@@ -84,6 +84,7 @@ async def scrape_main(
     limit: int | None = None,
     sources: list[str] = AVAILABLE_SOURCES,
 ) -> None:
+    limit = 1
     """Scrape-only phase: extract jobs, save to SQLite. No LLM.
 
     Args:
@@ -297,7 +298,7 @@ def parse_args() -> argparse.Namespace:
 
 async def main(args: argparse.Namespace) -> None:
     """Main async entry point."""
-    setup_logger(settings.logs_dir)
+    setup_logger()
 
     match args.command:
         case "scrape":

@@ -1,5 +1,5 @@
 import asyncio
-import sys
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -8,13 +8,17 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from loguru import logger
 from pydantic import BaseModel
 
 from job_scraper.config import settings
-from job_scraper.exceptions import JobNotFound
+from job_scraper.exceptions import ApplicationException, JobNotFound
+from job_scraper.main import filter_main, optimize_main, scrape_main
 from job_scraper.scraper import AVAILABLE_SOURCES
 from job_scraper.storage import ResultsStorage
+from job_scraper.utils.logger import setup_logger
 
+setup_logger()
 app = FastAPI()
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -42,32 +46,48 @@ async def stats():
 
 # ── WebSockets ───────────────────────────────────────────────────────────────
 
-async def _run_command(websocket: WebSocket, commands: list[str]) -> None:
-    await websocket.accept()
-    process = await asyncio.create_subprocess_exec(
-        sys.executable, "-m", "job_scraper.main", *commands,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    if process.stdout:
-        async for line in process.stdout:
-            await websocket.send_text(line.decode())
-    await websocket.close()
 
+@asynccontextmanager
+async def websocket_logger(websocket: WebSocket):
+    loop = asyncio.get_event_loop()
+    pending: list[asyncio.Task] = []
+
+    def ws_sink(message):
+        task = loop.create_task(websocket.send_text(message.record["message"]))
+        pending.append(task)
+
+    handler_id = logger.add(ws_sink, level="INFO")
+    try:
+        yield
+    except ApplicationException as e:
+        logger.error(e.message)
+    except Exception:
+        logger.exception("Failed due to unexpected error")
+    finally:
+        logger.remove(handler_id)
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        await websocket.close()
 
 @app.websocket("/scrape")
 async def scrape(websocket: WebSocket, source: Annotated[list[str] | None, Query()] = None):
-    valid = {s for s in source if source in AVAILABLE_SOURCES} if source is not None else set()
-    commands = ["scrape"] + (["--sources", *valid] if valid else [])
-    await _run_command(websocket, commands)
+    await websocket.accept()
+    async with websocket_logger(websocket):
+        valid = [s for s in source if s in AVAILABLE_SOURCES] if source else AVAILABLE_SOURCES
+        await scrape_main(sources=valid)
+
 
 @app.websocket("/filter")
 async def filter_jobs(websocket: WebSocket):
-    await _run_command(websocket, ["filter"])
+    await websocket.accept()
+    async with websocket_logger(websocket):
+        await filter_main()
 
 @app.websocket("/optimize")
 async def optimize(websocket: WebSocket):
-    await _run_command(websocket, ["optimize"])
+    await websocket.accept()
+    async with websocket_logger(websocket):
+        await optimize_main()
 
 
 # ── Misc ─────────────────────────────────────────────────────────────────────
