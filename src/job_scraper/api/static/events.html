@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f0f0f" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Job Events">
+<title>Job Events</title>
+<style>
+:root {
+  --bg:               #0f0f0f;
+  --surface:          #1a1a1a;
+  --surface-hover:    #222;
+  --surface2:         #222;
+  --surface3:         #333;
+  --border:           #2a2a2a;
+  --text:             #e0e0e0;
+  --text-dim:         #b0b0b0;
+  --text-muted:       #888;
+  --text-faint:       #555;
+  --text-heading:     #fff;
+  --scrollbar:        #333;
+  --link-color:       #2563eb;
+
+  --event-applied-bg:    #052e16;
+  --event-applied-color: #4ade80;
+  --event-applied-border:#166534;
+  --event-interview-bg:  #1e1b4b;
+  --event-interview-color:#a5b4fc;
+  --event-interview-border:#3730a3;
+  --event-offer-bg:      #1c1400;
+  --event-offer-color:   #fbbf24;
+  --event-offer-border:  #78350f;
+  --event-reject-bg:     #1c0a0a;
+  --event-reject-color:  #f87171;
+  --event-reject-border: #7f1d1d;
+
+  --btn-primary-bg:    #2563eb;
+  --btn-primary-hover: #1d4ed8;
+  --error-color:       #f87171;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg:               #f4f4f5;
+    --surface:          #ffffff;
+    --surface-hover:    #f9f9f9;
+    --surface2:         #f0f0f0;
+    --surface3:         #e4e4e7;
+    --border:           #d4d4d8;
+    --text:             #18181b;
+    --text-dim:         #3f3f46;
+    --text-muted:       #71717a;
+    --text-faint:       #a1a1aa;
+    --text-heading:     #18181b;
+    --scrollbar:        #d4d4d8;
+
+    --event-applied-bg:    #dcfce7;
+    --event-applied-color: #15803d;
+    --event-applied-border:#86efac;
+    --event-interview-bg:  #ede9fe;
+    --event-interview-color:#4f46e5;
+    --event-interview-border:#c4b5fd;
+    --event-offer-bg:      #fffbeb;
+    --event-offer-color:   #b45309;
+    --event-offer-border:  #fde68a;
+    --event-reject-bg:     #fee2e2;
+    --event-reject-color:  #b91c1c;
+    --event-reject-border: #fca5a5;
+
+    --btn-primary-bg:    #2563eb;
+    --btn-primary-hover: #1d4ed8;
+    --error-color:       #dc2626;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+.header {
+  padding: 20px 20px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.header-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+.counter {
+  font-size: 13px;
+  color: var(--text-faint);
+}
+.back-link {
+  font-size: 13px;
+  color: var(--text-faint);
+  text-decoration: none;
+  padding: 0 20px 12px;
+  display: inline-block;
+}
+.back-link:hover { color: var(--text-muted); }
+
+/* ── Job cards ── */
+.jobs-list {
+  flex: 1;
+  padding: 0 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.job-card {
+  background: var(--surface);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+@media (prefers-color-scheme: dark) {
+  .job-card { border: none; }
+}
+
+.job-header {
+  padding: 14px 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  user-select: none;
+  transition: background 0.15s;
+}
+.job-header:hover { background: var(--surface-hover); }
+
+.job-header-left { flex: 1; min-width: 0; }
+
+.job-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-heading);
+  line-height: 1.3;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job-company {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.job-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.latest-event {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+.latest-date {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.chevron {
+  font-size: 12px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: transform 0.2s;
+}
+.job-card.open .chevron { transform: rotate(180deg); }
+
+/* ── Events list ── */
+.events-body {
+  display: none;
+  border-top: 1px solid var(--border);
+}
+.job-card.open .events-body { display: block; }
+
+.event-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.event-row:last-of-type { border-bottom: none; }
+
+.event-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.event-date {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.event-url {
+  font-size: 12px;
+  color: var(--link-color);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.event-url:hover { text-decoration: underline; }
+
+/* event colors */
+.badge-applied   { background: var(--event-applied-bg);   color: var(--event-applied-color);   border: 1px solid var(--event-applied-border); }
+.badge-interview { background: var(--event-interview-bg); color: var(--event-interview-color); border: 1px solid var(--event-interview-border); }
+.badge-offer     { background: var(--event-offer-bg);     color: var(--event-offer-color);     border: 1px solid var(--event-offer-border); }
+.badge-reject    { background: var(--event-reject-bg);    color: var(--event-reject-color);    border: 1px solid var(--event-reject-border); }
+
+/* ── Add event form ── */
+.add-event-row {
+  padding: 12px 16px;
+  background: var(--surface2);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.select-event {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+}
+.select-event:focus { border-color: var(--btn-primary-bg); }
+
+.btn-add {
+  background: var(--btn-primary-bg);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+.btn-add:hover { background: var(--btn-primary-hover); }
+.btn-add:active { transform: scale(0.97); }
+.btn-add:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+.add-error {
+  font-size: 12px;
+  color: var(--error-color);
+  width: 100%;
+  padding-left: 2px;
+  min-height: 16px;
+}
+
+/* ── Empty / loading ── */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  gap: 12px;
+  padding: 40px;
+  text-align: center;
+}
+.empty-icon { font-size: 48px; }
+.empty-text { font-size: 15px; }
+.loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span class="header-title">Job Events</span>
+  <span class="counter" id="counter"></span>
+</div>
+<a class="back-link" href="/">← Back</a>
+
+<div id="app">
+  <div class="loading">Loading…</div>
+</div>
+
+<script>
+const EVENTS = ['applied', 'interview', 'offer', 'reject'];
+
+const EVENT_EMOJI = {
+  applied:   '✅',
+  interview: '🎙️',
+  offer:     '🏆',
+  reject:    '❌',
+};
+
+function badgeClass(event) {
+  return 'event-badge badge-' + event;
+}
+
+function formatDate(d) {
+  if (!d) return '';
+  const date = new Date(d.replace(' ', 'T') + 'Z');
+  return date.toLocaleString('pl-PL', {
+    day: '2-digit',
+    month: '2-digit', 
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+let jobs = [];
+
+async function fetchEvents() {
+  try {
+    const res = await fetch('/api/events');
+    if (!res.ok) throw new Error('Failed to fetch');
+    jobs = await res.json();
+    render();
+  } catch (e) {
+    document.getElementById('app').innerHTML =
+      `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">Could not load events.<br>${e.message}</div></div>`;
+  }
+}
+
+function render() {
+  const app = document.getElementById('app');
+  document.getElementById('counter').textContent = jobs.length ? `${jobs.length} job${jobs.length > 1 ? 's' : ''}` : '';
+
+  if (!jobs.length) {
+    app.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No events yet.<br>Apply to a job to get started.</div></div>`;
+    return;
+  }
+
+  app.innerHTML = '<div class="jobs-list" id="jobs-list"></div>';
+  const list = document.getElementById('jobs-list');
+
+  jobs.forEach((job, idx) => {
+    const card = document.createElement('div');
+    card.className = 'job-card';
+    card.dataset.idx = idx;
+
+    const latestEvent = job.events[0];
+    const badgeCls = badgeClass(latestEvent.event);
+    const emoji = EVENT_EMOJI[latestEvent.event] || '';
+
+    card.innerHTML = `
+      <div class="job-header" onclick="toggleCard(${idx})">
+        <div class="job-header-left">
+          <div class="job-title">${escHtml(job.title)}</div>
+          <div class="job-company">${escHtml(job.company)}</div>
+          <div class="job-meta">
+            <span class="${badgeCls}">${emoji} ${latestEvent.event}</span>
+            <span class="latest-date">${formatDate(job.latest_event_date)}</span>
+          </div>
+        </div>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="events-body" id="events-${idx}">
+        ${job.events.map(ev => `
+          <div class="event-row">
+            <span class="${badgeClass(ev.event)}">${EVENT_EMOJI[ev.event] || ''} ${ev.event}</span>
+            <span class="event-date">${formatDate(ev.date)}</span>
+            <a class="event-url" href="${escHtml(job.url)}" target="_blank" rel="noopener">${escHtml(job.url)}</a>
+          </div>
+        `).join('')}
+        <div class="add-event-row">
+          <select class="select-event" id="select-${idx}">
+            ${EVENTS.map(e => `<option value="${e}">${EVENT_EMOJI[e]} ${e}</option>`).join('')}
+          </select>
+          <button class="btn-add" onclick="addEvent(event, ${idx})">+ Add event</button>
+          <span class="add-error" id="err-${idx}"></span>
+        </div>
+      </div>
+    `;
+
+    list.appendChild(card);
+  });
+}
+
+function toggleCard(idx) {
+  const card = document.querySelector(`.job-card[data-idx="${idx}"]`);
+  card.classList.toggle('open');
+}
+
+async function addEvent(e, idx) {
+  e.stopPropagation();
+  const job = jobs[idx];
+  const select = document.getElementById(`select-${idx}`);
+  const errEl = document.getElementById(`err-${idx}`);
+  const btn = e.target;
+
+  const eventType = select.value;
+  errEl.textContent = '';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: job.url,
+        event: eventType,
+        title: job.title,
+        company: job.company,
+      }),
+    });
+    if (!res.ok) throw new Error('Failed');
+    await fetchEvents();
+    // reopen the card
+    setTimeout(() => {
+      const card = document.querySelector(`.job-card[data-idx="${idx}"]`);
+      if (card) card.classList.add('open');
+    }, 0);
+  } catch {
+    errEl.textContent = 'Failed to add event.';
+    btn.disabled = false;
+  }
+}
+
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+fetchEvents();
+</script>
+</body>
+</html>

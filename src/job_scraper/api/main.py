@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from job_scraper.config import settings
 from job_scraper.exceptions import ApplicationException, JobNotFound
 from job_scraper.main import filter_main, optimize_main, scrape_main
+from job_scraper.schema import Event
 from job_scraper.scraper import AVAILABLE_SOURCES
 from job_scraper.storage import ResultsStorage
 from job_scraper.utils.logger import setup_logger
@@ -42,6 +43,10 @@ async def rejected_review():
 @app.get("/stats")
 async def stats():
     return FileResponse(STATIC_DIR / "stats.html")
+
+@app.get("/events")
+async def events():
+    return FileResponse(STATIC_DIR / "events.html")
 
 
 # ── WebSockets ───────────────────────────────────────────────────────────────
@@ -171,6 +176,24 @@ async def promote_to_matched(body: PromoteRequest):
         ResultsStorage(settings.data_dir).promote_to_matched(body.url, user_note=body.user_note.strip())
     except JobNotFound as e:
         raise HTTPException(status_code=404, detail="Job not found.") from e
+    return {"status": "ok"}
+
+# ── Job event management ──────────────────────────────────────────────────────
+
+@app.get("/api/events")
+async def get_job_events():
+    return ResultsStorage(settings.data_dir).load_job_events()
+
+
+@app.post("/api/events")
+async def add_job_event(request: Request):
+    body = await request.json()
+    ResultsStorage(settings.data_dir).add_job_event(
+        url=body["url"],
+        event=Event(body["event"]),
+        title=body["title"],
+        company=body["company"],
+    )
     return {"status": "ok"}
 
 

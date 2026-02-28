@@ -6,12 +6,10 @@ from pydantic import BaseModel, field_validator
 
 
 class Event(StrEnum):
-    scraped = "scraped"
-    matched = "matched"
-    rejected = "rejected"
-    promoted_manually = "promoted_manually"
-    rejected_manually = "rejected_manually"
-    applied = "applied"
+        applied="applied"
+        interview="interview"
+        offer="offer"
+        reject="reject"
 
 class JobDataBase(BaseModel):
     description: dict[str, Any]
@@ -62,3 +60,18 @@ class DailyStats(BaseModel):
     daily: list[DailyStatEntry]
     totals: DailyStatEntry
 
+class JobEvent(BaseModel):
+    id: int
+    date: str
+    event: Event
+    url: str
+    title: str
+    company: str
+
+
+class JobWithEvents(BaseModel):
+    url: str
+    title: str
+    company: str
+    latest_event_date: str
+    events: list[JobEvent]

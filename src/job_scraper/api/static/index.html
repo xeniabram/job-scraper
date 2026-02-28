@@ -81,6 +81,10 @@
     --btn-stats-color: #1d4ed8;
     --btn-stats-border:#bfdbfe;
     --btn-stats-hover: #dbeafe;
+    --btn-events-bg:    #13315b;
+    --btn-events-color: #bfd9fa;
+    --btn-events-border:#1e3a5f;
+    --btn-events-hover: #132540;
 
     --status-run:  #d97706;
     --status-done: #16a34a;
@@ -269,6 +273,13 @@ body {
 }
 .btn-stats:hover:not(:disabled) { background: var(--btn-stats-hover); }
 
+.btn-events {
+  background: var(--btn-events-bg);
+  color: var(--btn-events-color);
+  border: 1px solid var(--btn-events-border);
+}
+.btn-events:hover:not(:disabled) { background: var(--btn-events-hover); }
+
 /* ── Status ── */
 .status {
   padding: 6px 20px;
@@ -332,6 +343,7 @@ body {
   <button class="btn btn-review"   id="btn-review"   onclick="location.href='/review'">Review</button>
   <button class="btn btn-rejected" id="btn-rejected" onclick="location.href='/rejected-review'">Rejected</button>
   <button class="btn btn-stats"    onclick="location.href='/stats'">Stats</button>
+  <button class="btn btn-events" onclick="location.href='/events'">Events</button>
 
 </div>
 

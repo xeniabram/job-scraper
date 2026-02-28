@@ -45,5 +45,14 @@ CREATE TABLE IF NOT EXISTS daily_stats (
     matched  INTEGER NOT NULL DEFAULT 0,
     rejected INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS job_events (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL DEFAULT (datetime('now')),
+    event   TEXT NOT NULL,  -- applied, response, interview, offer, reject
+    url     TEXT NOT NULL,
+    title   TEXT NOT NULL,
+    company TEXT NOT NULL
+);
+
 
 """

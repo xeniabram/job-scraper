@@ -11,7 +11,16 @@ from loguru import logger
 
 from job_scraper.exceptions import JobNotFound
 from job_scraper.llm.filter import CvOptimized
-from job_scraper.schema import DailyStatEntry, DailyStats, JobData, MatchedJob, RejectedJob
+from job_scraper.schema import (
+    DailyStatEntry,
+    DailyStats,
+    Event,
+    JobData,
+    JobEvent,
+    JobWithEvents,
+    MatchedJob,
+    RejectedJob,
+)
 from job_scraper.storage.DDL import _DDL
 
 
@@ -247,7 +256,42 @@ class ResultsStorage:
             ).fetchone()
             if not row:
                 raise JobNotFound("matched job not found")
+            conn.execute(
+                "INSERT INTO job_events (event, url, title, company) VALUES (?, ?, ?, ?)",
+                (Event.applied, url, row["title"], row["company"])
+            )
             conn.execute("DELETE FROM matched WHERE url = ?", (url,))
+    
+    def load_job_events(self) -> list[JobWithEvents]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, date, event, url, title, company FROM job_events ORDER BY date DESC"
+            ).fetchall()
+        
+        grouped: dict[str, JobWithEvents] = {}
+        for r in rows:
+            url = r["url"]
+            event = JobEvent(**dict(r))
+            if url not in grouped:
+                grouped[url] = JobWithEvents(
+                    url=url,
+                    title=r["title"],
+                    company=r["company"],
+                    latest_event_date=r["date"],
+                    events=[event],
+                )
+            else:
+                grouped[url].events.append(event)
+        
+        return sorted(grouped.values(), key=lambda j: j.latest_event_date, reverse=True)
+    
+    def add_job_event(self, url: str, event: Event, title: str, company: str) -> None:
+        """Add a new event for a job."""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO job_events (event, url, title, company) VALUES (?, ?, ?, ?)",
+                (event, url, title, company)
+            )
 
     # ------------------------------------------------------------------
     # Rejected review
