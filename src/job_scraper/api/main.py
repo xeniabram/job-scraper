@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from job_scraper.config import settings
 from job_scraper.exceptions import ApplicationException, JobNotFound
 from job_scraper.main import filter_main, optimize_main, scrape_main
-from job_scraper.schema import Event
+from job_scraper.schema import Event, JobData, ManualJobRequest
 from job_scraper.scraper import AVAILABLE_SOURCES
 from job_scraper.storage import ResultsStorage
 from job_scraper.utils.logger import setup_logger
@@ -48,6 +48,9 @@ async def stats():
 async def events():
     return FileResponse(STATIC_DIR / "events.html")
 
+@app.get("/add-job")
+async def add_job():
+    return FileResponse(STATIC_DIR / "add_job.html")
 
 # ── WebSockets ───────────────────────────────────────────────────────────────
 
@@ -194,6 +197,15 @@ async def add_job_event(request: Request):
         title=body["title"],
         company=body["company"],
     )
+    return {"status": "ok"}
+
+# ── Add manually ───────────────────────────────────────────────────────────────
+@app.post("/api/jobs/manual")
+async def add_manual_job(body: ManualJobRequest):
+    if body.destination not in ("jobs", "matched"):
+        raise HTTPException(status_code=422, detail="destination must be 'jobs' or 'matched'")
+    job = JobData(url=body.url, title=body.title, company=body.company, description=body.description)
+    ResultsStorage(settings.data_dir).save_manual_job(job, body.destination)
     return {"status": "ok"}
 
 

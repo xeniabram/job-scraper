@@ -208,6 +208,33 @@ class ResultsStorage:
             self._update_daily(conn, date=scraped_at, rejected=1)
         logger.debug(f"Saved rejected job: {job.url}")
 
+    def save_manual_job(self, job: JobData, destination: str) -> None:
+        """Manually insert a job into jobs queue or matched table.
+            Args:
+                job: Job data to save.
+                destination: 'jobs' or 'matched'.
+        """
+        with self._connect() as conn:
+            today = conn.execute("SELECT date('now')").fetchone()[0]
+            if destination == "matched":
+                conn.execute(
+                    "INSERT OR IGNORE INTO matched"
+                    " (url, title, company, description, match_pct, scraped_at)"
+                    " VALUES (?, ?, ?, ?, 0, ?)",
+                    (job.url, job.title, job.company, json.dumps(job.description), today),
+                )
+                self._update_daily(conn, date=today, matched=1)
+            else:
+                conn.execute(
+                    "INSERT OR IGNORE INTO jobs"
+                    " (url, title, company, description, source, scraped_at)"
+                    " VALUES (?, ?, ?, ?, 'manual', ?)",
+                    (job.url, job.title, job.company, json.dumps(job.description), today),
+                )
+                self._update_daily(conn, date=today, scraped=1)
+            self.url_cache.add(job.url)
+        logger.info(f"Manually saved job: {job.title} → {destination}")
+
     # ------------------------------------------------------------------
     # Matched jobs
     # ------------------------------------------------------------------

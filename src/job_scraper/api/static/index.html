@@ -28,26 +28,48 @@
   --scrollbar:        #333;
   --divider:          #222;
 
-  --btn-scrape:        #2563eb;
-  --btn-scrape-hover:  #1d4ed8;
-  --btn-filter:        #7c3aed;
-  --btn-filter-hover:  #6d28d9;
-  --btn-optimize:      #059669;
-  --btn-optimize-hover:#047857;
+  /* dark mode buttons — tinted dark bg + colored text + border */
+  --btn-scrape-bg:     #0d1f3c;
+  --btn-scrape-color:  #93c5fd;
+  --btn-scrape-border: #1e3a5f;
+  --btn-scrape-hover:  #132540;
+
+  --btn-filter-bg:     #1a1033;
+  --btn-filter-color:  #c4b5fd;
+  --btn-filter-border: #3730a3;
+  --btn-filter-hover:  #221540;
+
+  --btn-optimize-bg:   #052e16;
+  --btn-optimize-color:#4ade80;
+  --btn-optimize-border:#166534;
+  --btn-optimize-hover:#0a3d1f;
+
   --btn-review-bg:     #1a1400;
   --btn-review-color:  #fbbf24;
   --btn-review-border: #78350f;
   --btn-review-hover:  #231a00;
+
   --btn-rejected-bg:   #1c0a0a;
   --btn-rejected-color:#f87171;
   --btn-rejected-border:#7f1d1d;
   --btn-rejected-hover:#2a0f0f;
 
-  --btn-dropdown-accent: #2563eb;
-  --btn-stats-bg:    #0c1a2e;
-  --btn-stats-color: #60a5fa;
-  --btn-stats-border:#1e3a5f;
-  --btn-stats-hover: #132540;
+  --btn-stats-bg:      #0c1a2e;
+  --btn-stats-color:   #60a5fa;
+  --btn-stats-border:  #1e3a5f;
+  --btn-stats-hover:   #132540;
+
+  --btn-events-bg:     #1a0d2e;
+  --btn-events-color:  #e879f9;
+  --btn-events-border: #7e22ce;
+  --btn-events-hover:  #220f3a;
+
+  --btn-add-bg:        #0f1f0f;
+  --btn-add-color:     #86efac;
+  --btn-add-border:    #166534;
+  --btn-add-hover:     #152815;
+
+  --btn-dropdown-accent: #93c5fd;
   --status-run:  #facc15;
   --status-done: #4ade80;
 }
@@ -69,23 +91,47 @@
     --scrollbar:        #d4d4d8;
     --divider:          #e4e4e7;
 
+    --btn-scrape-bg:     #dbeafe;
+    --btn-scrape-color:  #1d4ed8;
+    --btn-scrape-border: #bfdbfe;
+    --btn-scrape-hover:  #bfdbfe;
+
+    --btn-filter-bg:     #ede9fe;
+    --btn-filter-color:  #4f46e5;
+    --btn-filter-border: #c4b5fd;
+    --btn-filter-hover:  #ddd6fe;
+
+    --btn-optimize-bg:   #dcfce7;
+    --btn-optimize-color:#15803d;
+    --btn-optimize-border:#86efac;
+    --btn-optimize-hover:#bbf7d0;
+
     --btn-review-bg:     #fffbeb;
     --btn-review-color:  #b45309;
     --btn-review-border: #fde68a;
     --btn-review-hover:  #fef3c7;
+
     --btn-rejected-bg:   #fee2e2;
     --btn-rejected-color:#b91c1c;
     --btn-rejected-border:#fca5a5;
     --btn-rejected-hover:#fecaca;
-    --btn-stats-bg:    #eff6ff;
-    --btn-stats-color: #1d4ed8;
-    --btn-stats-border:#bfdbfe;
-    --btn-stats-hover: #dbeafe;
-    --btn-events-bg:    #13315b;
-    --btn-events-color: #bfd9fa;
-    --btn-events-border:#1e3a5f;
-    --btn-events-hover: #132540;
 
+    --btn-stats-bg:      #eff6ff;
+    --btn-stats-color:   #1d4ed8;
+    --btn-stats-border:  #bfdbfe;
+    --btn-stats-hover:   #dbeafe;
+
+    --btn-events-bg:     #fdf4ff;
+    --btn-events-color:  #7e22ce;
+    --btn-events-border: #e9d5ff;
+    --btn-events-hover:  #f3e8ff;
+
+    --btn-add-bg:        #f0fdf4;
+    --btn-add-color:     #15803d;
+    --btn-add-border:    #bbf7d0;
+    --btn-add-hover:     #dcfce7;
+
+    --btn-dropdown-accent: #2563eb;
     --status-run:  #d97706;
     --status-done: #16a34a;
   }
@@ -120,15 +166,14 @@ body {
 
 .btn {
   padding: 15px 10px;
-  border: none;
   border-radius: 14px;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.1s;
+  transition: background 0.15s, transform 0.1s;
   font-family: inherit;
-  color: #fff;
   text-align: center;
+  border: 1px solid transparent;
 }
 .btn:active { transform: scale(0.97); }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
@@ -143,11 +188,11 @@ body {
 }
 .btn-scrape {
   flex: 1;
-  background: var(--btn-scrape);
-  color: #fff;
+  background: var(--btn-scrape-bg);
+  color: var(--btn-scrape-color);
+  border: 1px solid var(--btn-scrape-border);
+  border-right: none;
   border-radius: 14px 0 0 14px;
-  border-right: 1px solid var(--btn-scrape-hover);
-  border: none;
   padding: 15px 10px;
   font-size: 15px;
   font-weight: 600;
@@ -158,18 +203,19 @@ body {
 .btn-scrape:active { transform: scale(0.97); }
 .btn-scrape:hover:not(:disabled) { background: var(--btn-scrape-hover); }
 .btn-scrape:disabled { opacity: 0.35; cursor: not-allowed; }
+
 .btn-scrape-arrow {
   flex: 0 0 38px;
-  background: var(--btn-scrape);
-  color: #fff;
+  background: var(--btn-scrape-bg);
+  color: var(--btn-scrape-color);
+  border: 1px solid var(--btn-scrape-border);
+  border-left: 1px solid var(--btn-scrape-border);
   border-radius: 0 14px 14px 0;
   font-size: 12px;
-  border: none;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-left: 1px solid rgba(255,255,255,0.15);
   transition: background 0.15s;
 }
 .btn-scrape-arrow:hover:not(:disabled) { background: var(--btn-scrape-hover); }
@@ -221,9 +267,9 @@ body {
   font-size: 10px;
 }
 .dropdown-item.selected .check {
-  background: var(--btn-scrape);
-  border-color: var(--btn-scrape);
-  color: #fff;
+  background: var(--btn-scrape-color);
+  border-color: var(--btn-scrape-color);
+  color: var(--bg);
 }
 
 .dropdown-divider {
@@ -246,39 +292,55 @@ body {
 }
 .dropdown-action:hover { background: var(--surface3); }
 
-/* ── Other buttons ── */
-.btn-filter   { background: var(--btn-filter); }
-.btn-filter:hover:not(:disabled)   { background: var(--btn-filter-hover); }
-.btn-optimize { background: var(--btn-optimize); }
+/* ── Named buttons ── */
+.btn-filter {
+  background: var(--btn-filter-bg);
+  color: var(--btn-filter-color);
+  border-color: var(--btn-filter-border);
+}
+.btn-filter:hover:not(:disabled) { background: var(--btn-filter-hover); }
+
+.btn-optimize {
+  background: var(--btn-optimize-bg);
+  color: var(--btn-optimize-color);
+  border-color: var(--btn-optimize-border);
+}
 .btn-optimize:hover:not(:disabled) { background: var(--btn-optimize-hover); }
 
 .btn-review {
   background: var(--btn-review-bg);
   color: var(--btn-review-color);
-  border: 1px solid var(--btn-review-border);
+  border-color: var(--btn-review-border);
 }
 .btn-review:hover:not(:disabled) { background: var(--btn-review-hover); }
 
 .btn-rejected {
   background: var(--btn-rejected-bg);
   color: var(--btn-rejected-color);
-  border: 1px solid var(--btn-rejected-border);
+  border-color: var(--btn-rejected-border);
 }
 .btn-rejected:hover:not(:disabled) { background: var(--btn-rejected-hover); }
 
 .btn-stats {
   background: var(--btn-stats-bg);
   color: var(--btn-stats-color);
-  border: 1px solid var(--btn-stats-border);
+  border-color: var(--btn-stats-border);
 }
 .btn-stats:hover:not(:disabled) { background: var(--btn-stats-hover); }
 
 .btn-events {
   background: var(--btn-events-bg);
   color: var(--btn-events-color);
-  border: 1px solid var(--btn-events-border);
+  border-color: var(--btn-events-border);
 }
 .btn-events:hover:not(:disabled) { background: var(--btn-events-hover); }
+
+.btn-add {
+  background: var(--btn-add-bg);
+  color: var(--btn-add-color);
+  border-color: var(--btn-add-border);
+}
+.btn-add:hover:not(:disabled) { background: var(--btn-add-hover); }
 
 /* ── Status ── */
 .status {
@@ -312,7 +374,6 @@ body {
 .log-box .line { display: block; }
 .log-box .line:last-child { color: var(--text); }
 
-/* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 4px; }
@@ -324,7 +385,6 @@ body {
 
 <div class="buttons">
 
-  <!-- Scrape split button -->
   <div class="btn-scrape-wrap" id="scrape-wrap">
     <button class="btn-scrape" onclick="runScrape()">Scrape</button>
     <button class="btn-scrape-arrow" id="arrow-btn" onclick="toggleDropdown(event)">▾</button>
@@ -339,11 +399,11 @@ body {
 
   <button class="btn btn-filter"   onclick="run('filter')">Filter</button>
   <button class="btn btn-optimize" onclick="run('optimize')">Optimize</button>
-
   <button class="btn btn-review"   id="btn-review"   onclick="location.href='/review'">Review</button>
   <button class="btn btn-rejected" id="btn-rejected" onclick="location.href='/rejected-review'">Rejected</button>
   <button class="btn btn-stats"    onclick="location.href='/stats'">Stats</button>
-  <button class="btn btn-events" onclick="location.href='/events'">Events</button>
+  <button class="btn btn-events"   onclick="location.href='/events'">Events</button>
+  <button class="btn btn-add"      onclick="location.href='/add-job'">+ Add Job</button>
 
 </div>
 

@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f0f0f" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Add Job">
+<title>Add Job</title>
+<style>
+:root {
+  --bg:           #0f0f0f;
+  --surface:      #1a1a1a;
+  --surface2:     #222;
+  --border:       #2a2a2a;
+  --text:         #e0e0e0;
+  --text-dim:     #b0b0b0;
+  --text-muted:   #888;
+  --text-faint:   #555;
+  --text-heading: #fff;
+  --scrollbar:    #333;
+
+  --input-bg:     #1a1a1a;
+  --input-focus:  #2563eb;
+  --error-color:  #f87171;
+  --success-color:#4ade80;
+
+  --btn-jobs-bg:      #052e16;
+  --btn-jobs-color:   #4ade80;
+  --btn-jobs-border:  #166534;
+  --btn-jobs-hover:   #0a3d1f;
+  --btn-matched-bg:   #1e1b4b;
+  --btn-matched-color:#a5b4fc;
+  --btn-matched-border:#3730a3;
+  --btn-matched-hover:#2a2560;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg:           #f4f4f5;
+    --surface:      #ffffff;
+    --surface2:     #f0f0f0;
+    --border:       #d4d4d8;
+    --text:         #18181b;
+    --text-dim:     #3f3f46;
+    --text-muted:   #71717a;
+    --text-faint:   #a1a1aa;
+    --text-heading: #18181b;
+    --scrollbar:    #d4d4d8;
+
+    --input-bg:     #ffffff;
+    --input-focus:  #2563eb;
+    --error-color:  #dc2626;
+    --success-color:#16a34a;
+
+    --btn-jobs-bg:      #dcfce7;
+    --btn-jobs-color:   #15803d;
+    --btn-jobs-border:  #86efac;
+    --btn-jobs-hover:   #bbf7d0;
+    --btn-matched-bg:   #ede9fe;
+    --btn-matched-color:#4f46e5;
+    --btn-matched-border:#c4b5fd;
+    --btn-matched-hover:#ddd6fe;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+.header {
+  padding: 20px 20px 10px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+.back-link {
+  font-size: 13px;
+  color: var(--text-faint);
+  text-decoration: none;
+  padding: 0 20px 16px;
+  display: inline-block;
+}
+.back-link:hover { color: var(--text-muted); }
+
+/* ── Form ── */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 20px 20px;
+  flex: 1;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+.field-input,
+.field-textarea {
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 14px;
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+.field-input:focus,
+.field-textarea:focus { border-color: var(--input-focus); }
+.field-input::placeholder,
+.field-textarea::placeholder { color: var(--text-faint); }
+.field-input.error,
+.field-textarea.error { border-color: var(--error-color); }
+
+.field-textarea {
+  resize: vertical;
+  min-height: 100px;
+  line-height: 1.5;
+}
+
+.field-error {
+  font-size: 12px;
+  color: var(--error-color);
+  min-height: 16px;
+  padding-left: 2px;
+}
+
+/* ── Description fields ── */
+.desc-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.desc-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.desc-key {
+  flex: 0 0 120px;
+}
+
+.desc-val {
+  flex: 1;
+}
+
+.btn-remove-desc {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 10px 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.btn-remove-desc:hover { color: var(--error-color); }
+
+.btn-add-field {
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s, color 0.15s;
+  text-align: center;
+}
+.btn-add-field:hover { border-color: var(--text-muted); color: var(--text); }
+
+/* ── Destination ── */
+.destination-group {
+  display: flex;
+  gap: 10px;
+}
+
+.dest-btn {
+  flex: 1;
+  padding: 14px 10px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, transform 0.1s;
+  text-align: center;
+  opacity: 0.5;
+}
+.dest-btn:active { transform: scale(0.97); }
+.dest-btn.selected { opacity: 1; }
+
+.dest-jobs {
+  background: var(--btn-jobs-bg);
+  color: var(--btn-jobs-color);
+  border: 1px solid var(--btn-jobs-border);
+}
+.dest-jobs:hover { background: var(--btn-jobs-hover); }
+
+.dest-matched {
+  background: var(--btn-matched-bg);
+  color: var(--btn-matched-color);
+  border: 1px solid var(--btn-matched-border);
+}
+.dest-matched:hover { background: var(--btn-matched-hover); }
+
+/* ── Submit ── */
+.btn-submit {
+  width: 100%;
+  padding: 16px;
+  border: none;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  background: #2563eb;
+  color: #fff;
+  transition: background 0.15s, transform 0.1s;
+  margin-top: 4px;
+}
+.btn-submit:hover { background: #1d4ed8; }
+.btn-submit:active { transform: scale(0.98); }
+.btn-submit:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+.submit-error {
+  font-size: 13px;
+  color: var(--error-color);
+  text-align: center;
+  min-height: 18px;
+}
+
+.success-banner {
+  display: none;
+  background: var(--btn-jobs-bg);
+  color: var(--success-color);
+  border: 1px solid var(--btn-jobs-border);
+  border-radius: 12px;
+  padding: 14px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+}
+.success-banner.visible { display: block; }
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<div class="header">Add Job</div>
+<a class="back-link" href="/">← Back</a>
+
+<div class="form">
+
+  <div class="field">
+    <span class="field-label">URL *</span>
+    <input class="field-input" id="url" type="url" placeholder="https://...">
+    <span class="field-error" id="err-url"></span>
+  </div>
+
+  <div class="field">
+    <span class="field-label">Title *</span>
+    <input class="field-input" id="title" type="text" placeholder="Senior Backend Engineer">
+    <span class="field-error" id="err-title"></span>
+  </div>
+
+  <div class="field">
+    <span class="field-label">Company *</span>
+    <input class="field-input" id="company" type="text" placeholder="Acme Corp">
+    <span class="field-error" id="err-company"></span>
+  </div>
+
+  <div class="field">
+    <span class="field-label">Description</span>
+    <textarea class="field-textarea" id="description" placeholder="Job description, requirements, salary…"></textarea>
+  </div>
+
+  <div class="field">
+    <span class="field-label">Save to *</span>
+    <div class="destination-group">
+      <button class="dest-btn dest-jobs selected" id="dest-jobs" onclick="selectDest('jobs')">Queue (filter later)</button>
+      <button class="dest-btn dest-matched" id="dest-matched" onclick="selectDest('matched')">Matched (review now)</button>
+    </div>
+    <span class="field-error" id="err-dest"></span>
+  </div>
+
+  <div class="success-banner" id="success">✓ Job saved successfully!</div>
+  <span class="submit-error" id="err-submit"></span>
+
+  <button class="btn-submit" id="btn-submit" onclick="submit()">Save Job</button>
+
+</div>
+
+<script>
+let destination = 'jobs';
+
+function selectDest(d) {
+  destination = d;
+  document.getElementById('dest-jobs').classList.toggle('selected', d === 'jobs');
+  document.getElementById('dest-matched').classList.toggle('selected', d === 'matched');
+}
+
+
+function clearErrors() {
+  ['url', 'title', 'company', 'dest', 'submit'].forEach(id => {
+    const el = document.getElementById(`err-${id}`);
+    if (el) el.textContent = '';
+  });
+  document.querySelectorAll('.field-input.error').forEach(el => el.classList.remove('error'));
+}
+
+function validate() {
+  let ok = true;
+  const url = document.getElementById('url').value.trim();
+  const title = document.getElementById('title').value.trim();
+  const company = document.getElementById('company').value.trim();
+
+  if (!url) {
+    document.getElementById('err-url').textContent = 'URL is required.';
+    document.getElementById('url').classList.add('error');
+    ok = false;
+  }
+  if (!title) {
+    document.getElementById('err-title').textContent = 'Title is required.';
+    document.getElementById('title').classList.add('error');
+    ok = false;
+  }
+  if (!company) {
+    document.getElementById('err-company').textContent = 'Company is required.';
+    document.getElementById('company').classList.add('error');
+    ok = false;
+  }
+  return ok;
+}
+
+async function submit() {
+  clearErrors();
+  if (!validate()) return;
+
+  const btn = document.getElementById('btn-submit');
+  btn.disabled = true;
+
+  const body = {
+    url: document.getElementById('url').value.trim(),
+    title: document.getElementById('title').value.trim(),
+    company: document.getElementById('company').value.trim(),
+    description: { description: document.getElementById('description').value.trim() },
+    destination,
+  };
+
+  try {
+    const res = await fetch('/api/jobs/manual', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || 'Failed to save');
+    }
+    // success
+    document.getElementById('success').classList.add('visible');
+    document.getElementById('url').value = '';
+    document.getElementById('title').value = '';
+    document.getElementById('company').value = '';
+    document.getElementById('description').value = '';
+    setTimeout(() => document.getElementById('success').classList.remove('visible'), 3000);
+  } catch (e) {
+    document.getElementById('err-submit').textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+</script>
+</body>
+</html>

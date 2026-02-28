@@ -1,6 +1,6 @@
 import json
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, field_validator
 
@@ -75,3 +75,11 @@ class JobWithEvents(BaseModel):
     company: str
     latest_event_date: str
     events: list[JobEvent]
+
+
+class ManualJobRequest(BaseModel):
+    url: str
+    title: str
+    company: str
+    description: dict[str, Any]
+    destination: Literal["jobs", "matched"]
