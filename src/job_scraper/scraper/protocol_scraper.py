@@ -4,30 +4,32 @@ No browser required. Uses curl_cffi to bypass Cloudflare and BeautifulSoup
 to parse HTML via stable data-test attributes.
 """
 
-from collections.abc import Callable, Generator, Iterable
+from collections.abc import Callable, Generator
 from typing import Annotated, Literal
 
 from bs4 import BeautifulSoup
 from loguru import logger
 from pydantic import PlainSerializer, model_validator
 
+from job_scraper.exceptions import SourceParsingError
 from job_scraper.schema import JobData
 from job_scraper.scraper.base import BaseParams, BaseScraper
 from job_scraper.utils import text
 
 BASE_URL = "https://theprotocol.it"
 
-def serialize_with_suffix(suffix: str) -> Callable[[set[str] | str], str]:
-    def inner(input: set[str] | str) -> str:
-        if not input:
+
+def _with_suffix(suffix: str) -> Callable[[set[str] | str], str]:
+    def inner(data: set[str] | str) -> str:
+        if not data:
             return ""
-        if isinstance(input, Iterable) and not isinstance(input, str):
-            return ",".join(list(input)) + suffix
-        return input + suffix
+        if isinstance(data, str):
+            return data + suffix
+        return ",".join(data) + suffix
     return inner
 
 
-type TechLiteral = set[Literal[
+TechLiteral = set[Literal[
     "node.js", "net", "angular", "aws", "c", "c#", "c++",
     "go", "hibernate", "html", "ios", "java", "rust",
     "sql", "ruby", "react.js", "python", "r", "php",
@@ -36,8 +38,8 @@ type TechLiteral = set[Literal[
 
 
 class Params(BaseParams):
-    technologies_must: Annotated[TechLiteral | None, PlainSerializer(serialize_with_suffix(";t"), when_used="unless-none")] = None
-    technologies_nice: Annotated[TechLiteral | None, PlainSerializer(serialize_with_suffix(";nt"), when_used="unless-none")] = None
+    technologies_must: Annotated[TechLiteral | None, PlainSerializer(_with_suffix(";t"), when_used="unless-none")] = None
+    technologies_nice: Annotated[TechLiteral | None, PlainSerializer(_with_suffix(";nt"), when_used="unless-none")] = None
     technologies_not: TechLiteral | None = None
     specializations: Annotated[set[Literal[
         "backend", "frontend", "qa-testing", "security", "devops",
@@ -45,29 +47,29 @@ class Params(BaseParams):
         "ux-ui", "ai-ml", "project-management", "fullstack", "mobile",
         "embedded", "gamedev", "architecture", "business-analytics",
         "agile", "product-management", "sap-erp", "system-analytics"
-    ]] | None, PlainSerializer(serialize_with_suffix(";sp"), when_used="unless-none")] = None
+    ]] | None, PlainSerializer(_with_suffix(";sp"), when_used="unless-none")] = None
     seniority_levels: Annotated[
         set[Literal[
             "trainee", "assistant", "junior", "mid",
             "senior", "expert", "lead", "manager",
             "head", "executive"
         ]] | None,
-        PlainSerializer(serialize_with_suffix(";p"), when_used="unless-none")
+        PlainSerializer(_with_suffix(";p"), when_used="unless-none")
     ] = None
     contracts: Annotated[list[Literal[
         "kontrakt-b2b", "umowa-o-prace", "umowa-zlecenie",
         "umowa-o-dzielo", "umowa-na-zastepstwo", "umowa-agencyjna",
         "umowa-o-prace-tymczasowa", "umowa-o-staz-praktyki"
-    ]] | None, PlainSerializer(serialize_with_suffix(";c"), when_used="unless-none")] = None
+    ]] | None, PlainSerializer(_with_suffix(";c"), when_used="unless-none")] = None
     work_modes: Annotated[
         set[Literal["zdalna", "hybrydowa", "stacjonarna"]] | None,
-        PlainSerializer(serialize_with_suffix(";rw"), when_used="unless-none")
+        PlainSerializer(_with_suffix(";rw"), when_used="unless-none")
     ] = None
     locations: Annotated[
         set[str] | None,
-        PlainSerializer(serialize_with_suffix(";wp"), when_used="unless-none")
+        PlainSerializer(_with_suffix(";wp"), when_used="unless-none")
     ] = None
-    salary: Annotated[int | None, PlainSerializer(serialize_with_suffix(";s"), when_used="unless-none")] = None
+    salary: Annotated[int | None, PlainSerializer(_with_suffix(";s"), when_used="unless-none")] = None
     project_description_present: bool = False
 
     @model_validator(mode="after")
@@ -99,7 +101,6 @@ class Params(BaseParams):
         return "/".join(data.values())
     
     def build_listing_url(self) -> str:
-        """Build a theprotocol.it filter URL from config dict."""
         query = self.query_params
         return BASE_URL + "/filtry/" + self.segments + (f"?{query}" if query else "")
 
@@ -107,15 +108,14 @@ class Params(BaseParams):
 class ProtocolScraper(BaseScraper):
     """Scraper for theprotocol.it using HTTP requests + HTML parsing."""
     _param_type = Params
-    
-    @staticmethod
-    def _extract_job_urls(source: str) -> Generator[str]:
+
+    def _extract_job_urls(self, source: str) -> Generator[str]:
         soup = BeautifulSoup(source, "html.parser")
         for card in soup.select('a[data-test="list-item-offer"]'):
             yield (BASE_URL + str(card["href"])).split("?")[0]
 
     def _extract_job_data(self, job_url: str, source: str) -> JobData:
-        """Fetch a job detail page and extract structured data."""
+        """Parse a job detail page and return structured data."""
         soup = BeautifulSoup(source, "html.parser")
 
         title = text('[data-test="text-offerTitle"]', soup)
@@ -156,23 +156,23 @@ class ProtocolScraper(BaseScraper):
         requirements_optional = section_items('[data-test="section-requirements-optional"]')
         responsibilities = section_items('[data-test="section-responsibilities"]')
 
-        if not title and not technologies and not requirements:
-            logger.warning(f"No data extracted from {job_url}")
+        if not title or not company or not technologies or not requirements:
+            raise SourceParsingError("was not able to extract essential information")
 
         logger.info(f"Viewed: {title or 'Unknown'} @ {company or 'Unknown'}")
         return JobData(
             url=job_url,
             title=title,
             company=company,
-            description= {
-            "location": location,
-            "seniority": seniority,
-            "work_mode": work_mode,
-            "contracts": contracts,
-            "technologies": technologies,
-            "technologies_optional": technologies_optional,
-            "requirements": requirements,
-            "requirements_optional": requirements_optional,
-            "responsibilities": responsibilities,
+            description={
+                "location": location,
+                "seniority": seniority,
+                "work_mode": work_mode,
+                "contracts": contracts,
+                "technologies": technologies,
+                "technologies_optional": technologies_optional,
+                "requirements": requirements,
+                "requirements_optional": requirements_optional,
+                "responsibilities": responsibilities,
             }
         )

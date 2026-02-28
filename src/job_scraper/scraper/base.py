@@ -1,8 +1,3 @@
-"""JustJoin.it job board scraper — pure HTTP implementation.
-
-Robots.txt compliance (https://justjoin.it/robots.txt):
-  Disallow: /api/          ← this scraper does NOT touch any /api/ path
-"""
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Container, Generator
 from types import MappingProxyType
@@ -17,14 +12,13 @@ from job_scraper.schema import JobData
 
 
 class BaseParams(BaseModel, ABC):
-    
     @abstractmethod
     def build_listing_url(self) -> str:
         """Build the listing URL for this set of params."""
 
+
 class BaseScraper(ABC):
-    """Job board scraper base
-    """
+    """Job board scraper base."""
 
     HEADERS: MappingProxyType[str, str] = MappingProxyType({
         "User-Agent": (
@@ -65,9 +59,8 @@ class BaseScraper(ABC):
         resp.raise_for_status()
         return resp.text
     
-    @staticmethod
     @abstractmethod
-    def _extract_job_urls(source: str) -> Generator[str]:
+    def _extract_job_urls(self, source: str) -> Generator[str]:
         ...
 
     @abstractmethod
@@ -79,19 +72,18 @@ class BaseScraper(ABC):
         ...
     
     async def get_job_links(self, max_jobs: int, url_cache: Container) -> AsyncGenerator[str]:
-        """Returns found job links as list.
-        Raises: 
-            RuntimeError if not used as context manager
-            GetJobListingException if response status != 200 or no data was scraped (check selectors)
-            """
+        """Yield job links not already in url_cache, up to max_jobs per listing URL.
+
+        Raises:
+            RuntimeError: if not used as a context manager
+            GetJobListingException: if the listing page cannot be fetched
+        """
         for listing_url in self._listing_urls:
             logger.info(f"fetching for {listing_url}...")
             try:
                 listing_page_source = await self._get(listing_url)
             except httpx.HTTPStatusError as e:
                 raise GetJobListingException("was not able to fetch job listing page") from e
-            if listing_page_source is None:
-                raise GetJobListingException("unexpected None fetch result")
             new_jobs = 0
             total_jobs = 0
             for url in self._extract_job_urls(listing_page_source):
@@ -106,9 +98,9 @@ class BaseScraper(ABC):
         Raises:
             GetJobException
             SourceParsingError
-            """
+        """
         try:
             html = await self._get(job_url)
         except httpx.HTTPStatusError as e:
-            raise GetJobException("error fetchong job data") from e
+            raise GetJobException("error fetching job data") from e
         return self._extract_job_data(job_url, html)
