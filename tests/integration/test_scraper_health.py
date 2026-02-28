@@ -78,15 +78,14 @@ def _write_summary(summary_path: str, scraper_name: str, url: str, job: JobData)
     for key, value in job.description.items():
         if not value:
             continue
-        if isinstance(value, str):
-            preview = value[:150].replace("\n", " ")
-            if len(value) > 150:
-                full = value.replace("\n", " ")
-                lines.append(f"<details><summary><b>{key}:</b> {preview}…</summary>{full}</details>")
-            else:
-                lines.append(f"**{key}:** {preview}  ")
+        value = str(value)
+        preview = value[:150].replace("\n", " ")
+        if len(value) > 150:
+            full = value.replace("\n", " ")
+            lines.append(f"<details><summary>{key}: {preview}…</summary>\n\n{full}\n\n</details>\n")
         else:
-            lines.append(f"**{key}:** {value!r}  ")
+            lines.append(f"**{key}:** {preview}  ")
+
     lines.append("")
     with open(summary_path, "a", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
