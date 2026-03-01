@@ -380,6 +380,12 @@ body {
 </style>
 </head>
 <body>
+<div id="sleeping-screen" style="display:none; flex-direction:column; align-items:center; justify-content:center; min-height:100dvh; gap:12px; text-align:center; padding:40px;">
+  <div style="font-size:64px">🌙</div>
+  <div style="font-size:20px; font-weight:700; color:var(--text-heading)">Server is asleep</div>
+  <div style="font-size:15px; color:var(--text-muted)">Fresh jobs waiting for you in the morning ✨</div>
+  <div style="font-size:13px; color:var(--text-faint)">Next update at 8:00 AM</div>
+</div>
 
 <div class="header">Job Scraper</div>
 
@@ -411,6 +417,20 @@ body {
 <div class="log-box" id="log"></div>
 
 <script>
+
+(async function checkServer() {
+  try {
+    const res = await fetch('/api/sources', { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error();
+  } catch {
+    document.getElementById('sleeping-screen').style.display = 'flex';
+    document.querySelector('.header').style.display = 'none';
+    document.querySelector('.buttons').style.display = 'none';
+    document.querySelector('.status').style.display = 'none';
+    document.querySelector('.log-box').style.display = 'none';
+    return;
+  }
+})();
 const log = document.getElementById('log');
 const status = document.getElementById('status');
 const HOST = location.host;
